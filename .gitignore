@@ -1,3 +1,11 @@
+# Data files (too large for git)
+data/
+*.csv
+*.parquet
+*.tsv
+*.json.gz
+*.zip
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

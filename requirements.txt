@@ -1,0 +1,12 @@
+# AAI-540 Group 1 Flight Delay Prediction Project Dependencies
+# Note: boto3, sagemaker, pandas, numpy are pre-installed in SageMaker
+
+# Data ingestion
+kagglehub>=0.2.0
+awswrangler>=3.0.0
+
+# Utilities
+tqdm>=4.64.0
+
+# TODO: Add model training packages when needed:
+# scikit-learn, xgboost, lightgbm, matplotlib, seaborn
