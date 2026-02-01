@@ -8,5 +8,9 @@ awswrangler>=3.0.0
 # Utilities
 tqdm>=4.64.0
 
-# TODO: Add model training packages when needed:
-# scikit-learn, xgboost, lightgbm, matplotlib, seaborn
+# Model Training packages
+sagemaker>=2.150.0
+boto3>=1.26.0
+pandas>=1.5.0
+scikit-learn>=1.2.0
+xgboost>=1.7.0
