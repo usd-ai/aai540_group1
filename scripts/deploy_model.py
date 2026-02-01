@@ -94,7 +94,7 @@ print("RUNNING BATCH PREDICTION (DEMO)")
 print("="*70)
 
 # For demo, use test set as input
-input_data = f's3://{BUCKET}/{PREFIX}/data/inference/test_inference.csv'
+input_data = f's3://{BUCKET}/{PREFIX}/data/inference/test_inference_small.csv'
 
 print(f"\n📂 Input data: {input_data}")
 print("⏱️  Starting batch transform job...")
