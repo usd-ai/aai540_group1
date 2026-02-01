@@ -79,3 +79,60 @@ def save_evaluation_report(metrics, output_path):
     evaluation_output = {
         'metrics': {
             'f1_score': {
+                'value': metrics['f1_score']
+            },
+            'precision': {
+                'value': metrics['precision']
+            },
+            'recall': {
+                'value': metrics['recall']
+            }
+        }
+    }
+    
+    # Save evaluation.json for pipeline
+    with open(os.path.join(output_path, 'evaluation.json'), 'w') as f:
+        json.dump(evaluation_output, f, indent=2)
+    
+    # Save detailed metrics for human review
+    with open(os.path.join(output_path, 'metrics_detailed.json'), 'w') as f:
+        json.dump(metrics, f, indent=2)
+
+def print_evaluation_results(metrics):
+    """Print formatted evaluation results"""
+    print("\n" + "="*70)
+    print("MODEL EVALUATION RESULTS")
+    print("="*70)
+    print(f"F1 Score:   {metrics['f1_score']:.4f}")
+    print(f"Precision:  {metrics['precision']:.4f}")
+    print(f"Recall:     {metrics['recall']:.4f}")
+    print(f"\nConfusion Matrix:")
+    print(f"{metrics['confusion_matrix']}")
+    print("="*70 + "\n")
+
+if __name__ == '__main__':
+    args = parse_args()
+    
+    print("Starting model evaluation...")
+    
+    # Load model
+    print(f"Loading model from {args.model_path}")
+    model = load_model(args.model_path)
+    
+    # Load test data
+    print(f"Loading test data from {args.test_path}")
+    X_test, y_test = load_test_data(args.test_path)
+    print(f"Test set size: {len(y_test):,} samples")
+    
+    # Evaluate
+    print("Evaluating model...")
+    metrics = evaluate_model(model, X_test, y_test)
+    
+    # Print results
+    print_evaluation_results(metrics)
+    
+    # Save results
+    print(f"Saving evaluation results to {args.output_path}")
+    save_evaluation_report(metrics, args.output_path)
+    
+    print("✅ Evaluation complete!")

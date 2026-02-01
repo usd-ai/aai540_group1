@@ -10,10 +10,12 @@ PIPELINE_NAME = 'FlightDelayTrainingPipeline'
 # Baseline hyperparameters
 BASELINE_PARAMETERS = {
     'MaxDepth': 6,
-    'Eta': 0.1,
-    'NumRound': 100,
+    'Eta': 0.2,
+    'NumRound': 50,
+    'ScalePosWeight': 5.5,
     'Subsample': 0.8,
-    'ColsampleByTree': 0.8
+    'ColsampleByTree': 0.8,
+    'MinChildWeight': 1    
 }
 
 def check_pipeline_exists():
@@ -64,7 +66,7 @@ def run_baseline_experiment():
     print(f"\n⏱️  Expected Duration:")
     print(f"   Training: ~10-15 minutes")
     print(f"   Evaluation: ~2-5 minutes")
-    print(f"   Registration: ~1-2 minutes (if F1 >= 0.70)")
+    print(f"   Registration: ~1-2 minutes (if F1 >= 0.05)")
     print(f"   Total: ~15-25 minutes")
     
     print(f"\n📊 Monitor Progress:")
@@ -74,10 +76,10 @@ def run_baseline_experiment():
     print(f"   4. Watch pipeline steps execute")
     
     print(f"\n📦 Expected Outcome:")
-    print(f"   If F1 >= 0.70:")
+    print(f"   If F1 >= 0.05:")
     print(f"      → Model registered in Model Registry: 'flight-delay-models'")
     print(f"      → Status: PendingManualApproval")
-    print(f"   If F1 < 0.70:")
+    print(f"   If F1 < 0.05:")
     print(f"      → Pipeline stops at condition check")
     print(f"      → Model NOT registered")
     

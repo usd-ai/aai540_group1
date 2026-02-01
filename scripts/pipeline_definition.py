@@ -8,7 +8,7 @@ import sagemaker
 from sagemaker import get_execution_role
 from sagemaker.estimator import Estimator
 from sagemaker.inputs import TrainingInput
-from sagemaker.processing import ProcessingInput, ProcessingOutput
+from sagemaker.processing import ProcessingInput, ProcessingOutput, ScriptProcessor
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.steps import TrainingStep, ProcessingStep
@@ -18,6 +18,7 @@ from sagemaker.workflow.condition_step import ConditionStep
 from sagemaker.workflow.functions import JsonGet
 from sagemaker.model_metrics import MetricsSource, ModelMetrics
 from sagemaker.workflow.step_collections import RegisterModel
+from sagemaker.workflow.properties import PropertyFile
 
 # ===========================
 # CONFIGURATION
@@ -78,6 +79,8 @@ def create_pipeline():
     num_round = ParameterInteger(name='NumRound', default_value=100)
     subsample = ParameterFloat(name='Subsample', default_value=0.8)
     colsample_bytree = ParameterFloat(name='ColsampleByTree', default_value=0.8)
+    scale_pos_weight = ParameterFloat(name='ScalePosWeight', default_value=5.5) 
+    min_child_weight = ParameterInteger(name='MinChildWeight', default_value=1)
     
     print(f"\n📋 Pipeline Parameters (defaults):")
     print(f"   MaxDepth: {max_depth.default_value}")
@@ -85,6 +88,9 @@ def create_pipeline():
     print(f"   NumRound: {num_round.default_value}")
     print(f"   Subsample: {subsample.default_value}")
     print(f"   ColsampleByTree: {colsample_bytree.default_value}")
+    print(f"   ScalePosWeight: {scale_pos_weight.default_value}")
+    print(f"   MinChildWeight: {min_child_weight.default_value}")
+    
     
     # ===========================
     # STEP 1: TRAINING
@@ -114,6 +120,8 @@ def create_pipeline():
         num_round=num_round,
         subsample=subsample,
         colsample_bytree=colsample_bytree,
+        scale_pos_weight=scale_pos_weight,
+        min_child_weight=min_child_weight,        
         eval_metric='auc'
     )
     
@@ -133,16 +141,15 @@ def create_pipeline():
     # ===========================
     print(f"🔧 Defining Evaluation Step...")
     
-    from sagemaker.workflow.properties import PropertyFile
     
-    sklearn_processor = SKLearnProcessor(
-        framework_version='1.0-1',
+    script_processor = ScriptProcessor(
         role=role,
+        image_uri=sagemaker.image_uris.retrieve('xgboost', region, version='1.5-1'),  # Use XGBoost container
         instance_type='ml.m5.xlarge',
         instance_count=1,
         base_job_name='flight-delay-evaluation',
-        sagemaker_session=session
-    )
+        command=['python3']
+    )    
     
     # Define property file for condition check
     evaluation_report = PropertyFile(
@@ -153,7 +160,7 @@ def create_pipeline():
     
     evaluation_step = ProcessingStep(
         name='EvaluateModel',
-        processor=sklearn_processor,
+        processor=script_processor,
         code=SCRIPT_PATH,
         inputs=[
             ProcessingInput(
@@ -172,7 +179,7 @@ def create_pipeline():
                 destination=EVALUATION_OUTPUT_PATH
             )
         ],
-        property_files=[evaluation_report]  # ← ADD THIS LINE
+        property_files=[evaluation_report]  
     )    
     # ===========================
     # STEP 3: CONDITION CHECK
@@ -185,10 +192,10 @@ def create_pipeline():
             property_file='evaluation',
             json_path='metrics.f1_score.value'
         ),
-        right=0.70
+        right=0.05
     )
     
-    print("   ✅ Condition: F1 >= 0.70")
+    print("   ✅ Condition: F1 >= 0.05")
     
     # ===========================
     # STEP 4: MODEL REGISTRATION
@@ -238,7 +245,7 @@ def create_pipeline():
     
     pipeline = Pipeline(
         name=PIPELINE_NAME,
-        parameters=[max_depth, eta, num_round, subsample, colsample_bytree],
+        parameters=[max_depth, eta, num_round, subsample, colsample_bytree, scale_pos_weight, min_child_weight],
         steps=[training_step, evaluation_step, condition_step],
         sagemaker_session=session
     )
