@@ -1,157 +1,112 @@
+# aai540_group1
+
 # Flight Delay Prediction - MLOps Pipeline
 
-AAI-540 MLOps Course - Group 1 Project
+End-to-end ML pipeline for predicting flight delays using AWS SageMaker, built for AAI-540 MLOps course.
 
-## Project Organization
+## Overview
 
-This document describes how the project is organized. **Read this before making changes.**
+Automated binary classification system predicting flight delays (>15 minutes) for airline operational planning. Implements production-grade MLOps practices including automated training, evaluation, conditional model registration, and deployment pipelines.
 
----
+**Tech Stack:** AWS SageMaker, XGBoost, Python, S3, Model Registry, Batch Transform
 
-## Folder Structure
-
+## Project Structure
 ```
-aai540_group1/
-├── README.md                    # This file - read first
-├── requirements.txt
-│
-├── notebooks/                   # Jupyter notebooks (numbered for execution order)
-│   ├── 01_data_ingestion/
-│   ├── 02_feature_engineering/
-│   ├── 03_training_and_evaluation/
-│   ├── 04_inference/
-│   └── archive/                 # Deprecated notebooks - do not use
-│
-├── scripts/                     # Python scripts for SageMaker jobs
-├── config/                      # Configuration files
-├── data/                        # Local data (not committed to git)
-└── sql/                         # SQL queries (Athena)
+├── scripts/
+│   └── evaluate.py              # Model evaluation script for SageMaker Processing
+├── pipeline_definition.py       # Creates/updates SageMaker Pipeline
+├── run_experiment.py            # Executes baseline training experiment
+├── requirements.txt             # Python dependencies
+└── README.md
 ```
 
-### Naming Conventions
-
-**Folders:** Use `XX_descriptive_name/` format where XX is a two-digit number indicating execution order.
-
-**Notebooks:** Use `XX_descriptive_name.ipynb` format within each folder.
-- `00_` = Setup/prerequisites (run once)
-- `01_`, `02_`, ... = Sequential steps (run in order)
-
-**Why numbering?** Notebooks often depend on outputs from previous notebooks. The numbering ensures correct execution order and makes dependencies clear.
-
-**Examples:**
-- `01_data_ingestion/01_setup_s3_and_ingest.ipynb` runs before `01_data_ingestion/02_create_athena_tables.ipynb`
-- All of `02_feature_engineering/` should complete before starting `03_training_and_evaluation/`
-
-### Adding New Files
-
-| If you need to... | Put it in... | Name it... |
-|-------------------|--------------|------------|
-| Add a notebook for data work | `notebooks/01_data_ingestion/` | `XX_description.ipynb` |
-| Add a notebook for features | `notebooks/02_feature_engineering/` | `XX_description.ipynb` |
-| Add a notebook for training | `notebooks/03_training_and_evaluation/` | `XX_description.ipynb` |
-| Add a notebook for deployment | `notebooks/04_inference/` | `XX_description.ipynb` |
-| Deprecate a notebook | `notebooks/archive/` | Keep original name |
-| Add a Python script | `scripts/` | `descriptive_name.py` |
-
----
-
-## AWS Resource Naming
-
-All AWS resources use the `aai540-group1` prefix. **Do not create resources with random names.**
-
-### S3 Buckets
-
-| Bucket | Purpose | Access |
-|--------|---------|--------|
-| `sagemaker-us-east-1-425709451100` | Shared data (read-only for most users) | Public team bucket |
-| `sagemaker-us-east-1-786869526001` | Personal workspace | `sess.default_bucket()` |
-
-### S3 Prefixes
-
-All data lives under `aai540-group1/` prefix:
-
+## Pipeline Architecture
 ```
-aai540-group1/
-├── data/raw/                    # Raw source data
-├── features/                    # Parquet feature files (train, val, test, prod)
-├── training/                    # CSV files for SageMaker training
-│   ├── raw-baseline/            # 6-feature variant
-│   ├── engineered-no-target-encoding/  # 16-feature variant
-│   └── engineered-baseline/     # 20-feature variant
-├── models/                      # Model artifacts from training jobs
-│   ├── raw-baseline/
-│   └── engineered-no-target-encoding/
-├── predictions/                 # Batch prediction outputs
-└── inference/                   # Inference input files
+Training → Evaluation → Condition (F1 ≥ 0.70?) → Model Registration
+   ↓           ↓              ↓                        ↓
+XGBoost    Test Set      Pass/Fail Gate      SageMaker Model Registry
+10-15min    2-5min        Automated           (flight-delay-models)
 ```
 
-**When adding new data:** Follow existing prefix structure. Use descriptive names with hyphens (not underscores).
+## Prerequisites
 
-### SageMaker Resources
+- AWS SageMaker access with execution role
+- Model Package Group: `flight-delay-models`
+- Training data in S3:
+  - `s3://BUCKET/PREFIX/data/train/train.csv`
+  - `s3://PREFIX/data/validation/val.csv`
+  - `s3://PREFIX/data/test/test.csv`
 
-| Resource Type | Naming Pattern | Example |
-|---------------|----------------|---------|
-| Model Package Group | `flight-delay-models` | (already created) |
-| Training Jobs | Auto-generated by SageMaker | `sagemaker-xgboost-2026-...` |
-| Endpoints | `flight-delay-{variant}` | `flight-delay-v2` |
+## Setup
+```bash
+# Install dependencies
+pip install -r requirements.txt
 
----
+# Create pipeline (one-time)
+python pipeline_definition.py
+```
 
-## Notebook Guidelines
+## Usage
+```bash
+# Run baseline experiment
+python run_experiment.py
+```
 
-### Idempotency
+**Baseline Hyperparameters:**
+- Max Depth: 6
+- Learning Rate (Eta): 0.1
+- Boosting Rounds: 100
+- Subsample: 0.8
+- Column Subsample: 0.8
 
-**All notebook cells should be idempotent whenever possible.** This means running a cell multiple times produces the same result without errors or side effects.
+## Monitoring
 
-**How to achieve idempotency:**
+View pipeline execution in **SageMaker Studio**:
+1. Navigate to **Pipelines** → `FlightDelayTrainingPipeline`
+2. Find execution by timestamp
+3. Monitor real-time step execution
 
-1. **S3 uploads:** Check if file exists before uploading
-   ```python
-   try:
-       s3_client.head_object(Bucket=bucket, Key=key)
-       print("Already exists, skipping")
-   except ClientError:
-       s3_client.upload_file(...)
-   ```
+## Success Criteria
 
-2. **Resource creation:** Check if resource exists before creating
-   ```python
-   try:
-       sm_client.describe_model_package_group(...)
-       print("Already exists")
-   except:
-       sm_client.create_model_package_group(...)
-   ```
+**Model Registration Requirements:**
+- F1-score ≥ 0.70 on test set
+- Automatic registration to Model Registry
+- Status: `PendingManualApproval`
 
-3. **Directory creation:** Use `os.makedirs(path, exist_ok=True)`
+## Pipeline Steps
 
-**Known exceptions (not idempotent):**
-- Training jobs: Each run creates a new job (this is expected)
-- Model registration: Each run creates a new version (this is expected)
+| Step | Component | Duration | Output |
+|------|-----------|----------|--------|
+| 1. Training | SageMaker Training Job (XGBoost) | 10-15 min | model.tar.gz |
+| 2. Evaluation | SageMaker Processing Job | 2-5 min | metrics.json |
+| 3. Condition Check | Pipeline Logic | <1 min | Pass/Fail |
+| 4. Registration | Model Registry | 1-2 min | Model Package |
 
-### Cell Structure
+## Dataset
 
-Each notebook should have:
-1. **Markdown header:** Title, Purpose, Prerequisites
-2. **Imports cell:** All imports in one place
-3. **Configuration cell:** Buckets, prefixes, constants
-4. **Execution cells:** One logical step per cell
-5. **Markdown summary:** Results and next steps
+**Source:** 2015 Flight Delays and Cancellations (U.S. DOT)
+- **Training:** 4.3M samples
+- **Validation:** 483K samples  
+- **Test:** 462K samples
+- **Features:** 20 engineered features (temporal, historical, route-based)
+- **Target:** Binary delay indicator (>15 minutes)
 
----
+## Model Registry
 
-## Current Status
+Approved models stored in: `flight-delay-models`
 
-| Phase | Folder | Status |
-|-------|--------|--------|
-| Data Ingestion | `01_data_ingestion/` | Complete |
-| Feature Engineering | `02_feature_engineering/` | Complete |
-| Training & Evaluation | `03_training_and_evaluation/` | Complete |
-| Inference/Deployment | `04_inference/` | Pending |
+Access via SageMaker Studio: **Model Registry** → `flight-delay-models`
 
----
+
+## Configuration
+
+Update `pipeline_definition.py` for:
+- S3 bucket/prefix paths
+- Instance types
+- F1 threshold
+- Hyperparameter ranges
+
 
 ## License
 
-Academic project - AAI-540 MLOps Course, University of San Diego
-
+Academic project - AAI-540 MLOps Course
