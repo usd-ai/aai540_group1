@@ -140,17 +140,6 @@ Each notebook should have:
 
 ---
 
-## Current Status
-
-| Phase | Folder | Status |
-|-------|--------|--------|
-| Data Ingestion | `01_data_ingestion/` | Complete |
-| Feature Engineering | `02_feature_engineering/` | Complete |
-| Training & Evaluation | `03_training_and_evaluation/` | Complete |
-| Inference/Deployment | `04_inference/` | Pending |
-
----
-
 ## License
 
 Academic project - AAI-540 MLOps Course, University of San Diego
