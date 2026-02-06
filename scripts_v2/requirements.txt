@@ -1,0 +1,10 @@
+# Requirements for scripts/_v2 implementations
+# Keep versions compatible with the SageMaker XGBoost container (1.5-1)
+sagemaker>=2.159.0
+boto3>=1.26.0
+python-dotenv>=0.21.0
+pandas>=1.5.3
+scikit-learn>=1.2.2
+numpy>=1.24.0
+# Pin xgboost to a release compatible with the container image used (1.5.x)
+xgboost==1.5.2

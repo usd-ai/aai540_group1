@@ -1,3 +1,4 @@
 xgboost==1.7.6
 pandas
 scikit-learn
+python-dotenv
