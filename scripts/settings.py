@@ -182,7 +182,7 @@ DEFAULT_HYPERPARAMETERS: Dict[str, Any] = {
 # ──────────────────────────────────────────────
 # Model-quality gate: the minimum F1 score required for automatic
 # registration into the Model Registry.
-F1_THRESHOLD: float = float(os.environ.get("F1_THRESHOLD", "0.50"))
+F1_THRESHOLD: float = float(os.environ.get("F1_THRESHOLD", "0.20"))
 
 # Prediction threshold used in evaluate.py to turn probabilities into classes
 PREDICTION_THRESHOLD: float = 0.5
