@@ -2,7 +2,7 @@
 CLI runner to start the SageMaker pipeline (consolidates previous run_experiment/train scripts).
 
 Creates a pipeline execution with hyperparameters provided via CLI or falling
-back to defaults from `config.settings_v2.DEFAULT_HYPERPARAMETERS`.
+back to defaults from `config.settings.DEFAULT_HYPERPARAMETERS`.
 
 This script is safe to import (no side-effects). Execution only occurs under
 `if __name__ == '__main__'`.
@@ -11,15 +11,14 @@ Usage examples (run from the repository root):
 
 Dry-run (no network calls will be made):
 
-    python scripts/run_experiment_v2.py --dry-run --MaxDepth 7 --Eta 0.1
+    python scripts/run_experiment.py --dry-run --MaxDepth 7 --Eta 0.1
 
 Start the pipeline (requires AWS credentials and SageMaker access):
 
-    python scripts/run_experiment_v2.py --MaxDepth 7 --Eta 0.1
-
+    python scripts/run_experiment.py --MaxDepth 7 --Eta 0.1
 Notes:
-- Default values are read from `config.settings_v2.DEFAULT_HYPERPARAMETERS`.
-- The pipeline name is taken from `config.settings_v2.PIPELINE_NAME`.
+- Default values are read from `config.settings.DEFAULT_HYPERPARAMETERS`.
+- The pipeline name is taken from `config.settings.PIPELINE_NAME`.
 - Use `--display-name` to set a friendly name for the pipeline execution.
 """
 from __future__ import annotations
@@ -31,7 +30,7 @@ from typing import Dict
 
 import boto3
 
-import settings_v2 as cfg
+import settings as cfg
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -84,7 +83,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--InstanceCount", type=int, default=None, help="Training instance count")
     p.add_argument("--ApprovalStatus", type=str, default=None, help="Model approval status")
 
-    # Hyperparameters — defaults pulled from settings_v2.DEFAULT_HYPERPARAMETERS
+    # Hyperparameters — defaults pulled from settings.DEFAULT_HYPERPARAMETERS
     defaults = cfg.DEFAULT_HYPERPARAMETERS
     p.add_argument("--Objective", type=str, default=None, help="XGBoost objective")
     p.add_argument("--EvalMetric", type=str, default=None, help="XGBoost eval_metric")
@@ -136,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Ensure pipeline exists (idempotent check)
     if not pipeline_exists(pipeline_name):
-        logger.error("Pipeline '%s' not found. Please create it first (run pipeline_definition_v2 or pipeline_definition).", pipeline_name)
+        logger.error("Pipeline '%s' not found. Please create it first (run pipeline_definition or pipeline_definition).", pipeline_name)
         return 2
 
     pipeline_params = build_pipeline_parameters(overrides)

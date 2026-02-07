@@ -1,7 +1,7 @@
 """
 Model Evaluation Script for SageMaker Processing Job (v2)
 Evaluates trained XGBoost model on test set and outputs metrics
-Uses centralized configuration from settings_v2
+Uses centralized configuration from settings
 """
 import json
 import os
@@ -21,7 +21,7 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "pyarrow"])
 
 # ===== Container-local constants (do NOT import project config inside the Processing container) =====
-# These mirror the values in settings_v2 but must be self-contained inside
+# These mirror the values in settings but must be self-contained inside
 # the Processing job because only the evaluation script is uploaded to S3.
 PROCESSING_MODEL_PATH = "/opt/ml/processing/model"
 PROCESSING_TEST_PATH = "/opt/ml/processing/test"

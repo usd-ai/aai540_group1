@@ -1,7 +1,7 @@
 """
 SageMaker Pipeline Definition for Flight Delay Prediction (v2)
 Creates an automated ML pipeline with training, evaluation, and model registration
-Uses centralized configuration from settings_v2
+Uses centralized configuration from settings
 """
 import os
 import boto3
@@ -21,7 +21,7 @@ from sagemaker.model_metrics import MetricsSource, ModelMetrics
 from sagemaker.workflow.step_collections import RegisterModel
 from sagemaker.workflow.properties import PropertyFile
 
-import settings_v2 as cfg
+import setting as cfg
 
 # ===========================
 # UPLOAD EVALUATION SCRIPT TO S3
@@ -33,8 +33,8 @@ def upload_evaluation_script():
     s3 = boto3.client('s3')
     
     # Both scripts are in the same directory
-    local_script = 'evaluate_v2.py'
-    s3_key = f'{cfg.PREFIX}/scripts/evaluate_v2.py'
+    local_script = 'evaluate.py'
+    s3_key = f'{cfg.PREFIX}/scripts/evaluate.py'
     
     if not os.path.exists(local_script):
         raise FileNotFoundError(f"Evaluation script not found at {local_script}")
@@ -135,7 +135,7 @@ def create_pipeline():
     # ===========================
     print(f"🔧 Defining Evaluation Step...")
     
-    script_path = f's3://{cfg.BUCKET}/{cfg.PREFIX}/scripts/evaluate_v2.py'
+    script_path = f's3://{cfg.BUCKET}/{cfg.PREFIX}/scripts/evaluate.py'
     
     script_processor = ScriptProcessor(
         role=role,
@@ -276,5 +276,5 @@ if __name__ == '__main__':
     print(f"{'='*70}")
     print(f"\nPipeline Name: {cfg.PIPELINE_NAME}")
     print(f"\n✅ View pipeline in SageMaker Studio")
-    print(f"✅ Ready to run experiments with run_experiment_v2.py")
+    print(f"✅ Ready to run experiments with run_experiment.py")
     print(f"{'='*70}\n")

@@ -1,7 +1,7 @@
 """
 Deploy Registered Model to Batch Transform (v2)
 Runs nightly predictions on next-day flights
-Uses centralized configuration from settings_v2
+Uses centralized configuration from settings
 """
 import boto3
 import sagemaker
@@ -11,7 +11,7 @@ from datetime import datetime
 
 import argparse
 import sys
-import settings_v2 as cfg
+import settings as cfg
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Deploy Model to Batch Transform")
