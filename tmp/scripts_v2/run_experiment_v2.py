@@ -31,7 +31,7 @@ from typing import Dict
 
 import boto3
 
-from config import settings_v2 as cfg
+import settings_v2 as cfg
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -74,8 +74,19 @@ def start_pipeline(pipeline_name: str, pipeline_parameters: list[Dict[str, str]]
 def parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Start baseline experiment via SageMaker Pipeline")
 
+    # Pipeline Parameters
+    p.add_argument("--TrainingDataUrl", type=str, default=None, help="S3 path to training data")
+    p.add_argument("--ValidationDataUrl", type=str, default=None, help="S3 path to validation data")
+    p.add_argument("--ModelOutputPath", type=str, default=None, help="S3 path for model output")
+    p.add_argument("--InputContentType", type=str, default=None, help="Content type (e.g., application/x-parquet, text/csv)")
+    p.add_argument("--InstanceType", type=str, default=None, help="Training instance type")
+    p.add_argument("--InstanceCount", type=int, default=None, help="Training instance count")
+    p.add_argument("--ApprovalStatus", type=str, default=None, help="Model approval status")
+
     # Hyperparameters — defaults pulled from settings_v2.DEFAULT_HYPERPARAMETERS
     defaults = cfg.DEFAULT_HYPERPARAMETERS
+    p.add_argument("--Objective", type=str, default=None, help="XGBoost objective")
+    p.add_argument("--EvalMetric", type=str, default=None, help="XGBoost eval_metric")
     p.add_argument("--MaxDepth", type=int, default=defaults.get("max_depth"), help="XGBoost max_depth")
     p.add_argument("--Eta", type=float, default=defaults.get("eta"), help="XGBoost eta")
     p.add_argument("--NumRound", type=int, default=defaults.get("num_round"), help="Number of boosting rounds")
@@ -97,7 +108,17 @@ def main(argv: list[str] | None = None) -> int:
     pipeline_name = cfg.PIPELINE_NAME
 
     # Map CLI args to pipeline parameter names expected by the pipeline
+    # Only include parameters that are explicitly provided (or have defaults we want to enforce)
     overrides = {
+        "TrainingDataUrl": args.TrainingDataUrl,
+        "ValidationDataUrl": args.ValidationDataUrl,
+        "ModelOutputPath": args.ModelOutputPath,
+        "InputContentType": args.InputContentType,
+        "InstanceType": args.InstanceType,
+        "InstanceCount": args.InstanceCount,
+        "ApprovalStatus": args.ApprovalStatus,
+        "Objective": args.Objective,
+        "EvalMetric": args.EvalMetric,
         "MaxDepth": args.MaxDepth,
         "Eta": args.Eta,
         "NumRound": args.NumRound,
@@ -106,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         "ScalePosWeight": args.ScalePosWeight,
         "MinChildWeight": args.MinChildWeight,
     }
+    
+    # Filter out None values to let Pipeline use its defaults
+    overrides = {k: v for k, v in overrides.items() if v is not None}
 
     logger.info("Starting experiment: pipeline=%s, overrides=%s", pipeline_name, overrides)
 

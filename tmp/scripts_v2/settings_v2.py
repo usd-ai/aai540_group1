@@ -62,10 +62,14 @@ sagemaker_session: sagemaker.Session = sagemaker.Session(
     boto_session=boto3.Session(region_name=REGION)
 )
 
-ROLE: str = os.environ.get(
-    "SAGEMAKER_ROLE",
-    sagemaker.get_execution_role(),
-)
+ROLE: str = os.environ.get("SAGEMAKER_ROLE")
+if not ROLE:
+    try:
+        ROLE = sagemaker.get_execution_role()
+    except ValueError:
+        # Fallback for local testing without IAM role
+        print("⚠️ Could not get execution role. Using dummy role for local testing.")
+        ROLE = "arn:aws:iam::000000000000:role/dummy-role"
 
 # Bucket — env-var takes precedence so each teammate can override.
 # Fallback: the hardcoded shared bucket the team has been using.

@@ -1,106 +1,178 @@
 """
-Evaluation utilities (v2) for the Flight Delay project.
-
-Provides `compute_metrics` for offline arrays and a small CLI to evaluate a
-predictions CSV (local file). The module is safe to import and avoids network
-access unless explicitly implemented by the caller.
+Model Evaluation Script for SageMaker Processing Job (v2)
+Evaluates trained XGBoost model on test set and outputs metrics
+Uses centralized configuration from settings_v2
 """
-from __future__ import annotations
+import json
+import os
+import tarfile
+import pandas as pd
+import xgboost as xgb
+from sklearn.metrics import f1_score, precision_score, recall_score, confusion_matrix
+import argparse
+import subprocess
+import sys
 
-from typing import Dict, Iterable
+# Ensure pyarrow is installed for Parquet support
+try:
+    import pyarrow
+except ImportError:
+    print("Installing pyarrow...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyarrow"])
 
-import logging
+import settings_v2 as cfg
 
-from config import settings_v2 as cfg
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model-path', type=str, default=cfg.PROCESSING_MODEL_PATH)
+    parser.add_argument('--test-path', type=str, default=cfg.PROCESSING_TEST_PATH)
+    parser.add_argument('--output-path', type=str, default=cfg.PROCESSING_EVALUATION_PATH)
+    parser.add_argument('--input-content-type', type=str, default='application/x-parquet')
+    return parser.parse_args()
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+def load_model(model_path):
+    """Extract and load XGBoost model from tar.gz"""
+    model_tar = os.path.join(model_path, 'model.tar.gz')
+    
+    # Extract model
+    with tarfile.open(model_tar, 'r:gz') as tar:
+        tar.extractall(path='/tmp/model')
+    
+    # Load XGBoost model
+    model = xgb.Booster()
+    model.load_model(f'/tmp/model/{cfg.XGBOOST_MODEL_FILENAME}')
+    
+    return model
 
+def load_test_data(test_path, content_type='application/x-parquet'):
+    """Load test data from Parquet or CSV files"""
+    print(f"Loading data with content type: {content_type}")
+    files = os.listdir(test_path)
+    
+    dfs = []
+    
+    if content_type == 'application/x-parquet':
+        parquet_files = [f for f in files if f.endswith('.parquet')]
+        if not parquet_files:
+             # Fallback if no specific extension but content type claims parquet
+             # (SageMaker processing inputs might not preserve extension if not specified)
+             parquet_files = [f for f in files if not f.startswith('.')]
+        
+        print(f"Found {len(parquet_files)} Parquet files")
+        for f in parquet_files:
+            path = os.path.join(test_path, f)
+            dfs.append(pd.read_parquet(path))
+            
+    elif content_type == 'text/csv':
+        csv_files = [f for f in files if f.endswith('.csv')]
+        if not csv_files:
+            csv_files = [f for f in files if not f.startswith('.')]
 
-def compute_metrics(y_true: Iterable[int], y_proba: Iterable[float], threshold: float | None = None) -> Dict[str, float]:
-    """Compute evaluation metrics given true labels and predicted probabilities.
+        print(f"Found {len(csv_files)} CSV files")
+        for f in csv_files:
+            path = os.path.join(test_path, f)
+            # Benchmark model CSVs have target first, no header
+            dfs.append(pd.read_csv(path, header=None))
+    else:
+        raise ValueError(f"Unsupported content type: {content_type}")
+    
+    if not dfs:
+        raise ValueError(f"No valid data files found in {test_path}")
 
-    Returns dict with keys: auc, f1, precision, recall, accuracy, threshold_used
-    """
-    try:
-        from sklearn.metrics import roc_auc_score, f1_score, precision_score, recall_score, accuracy_score
-    except Exception as exc:  # pragma: no cover - sklearn may not be available in some test envs
-        logger.error("scikit-learn is required for compute_metrics: %s", exc)
-        raise
+    test_df = pd.concat(dfs)
+    
+    # First column is target, rest are features
+    y_test = test_df.iloc[:, 0].values
+    X_test = test_df.iloc[:, 1:].values
+    
+    return X_test, y_test
 
-    y_true_list = list(y_true)
-    y_proba_list = list(y_proba)
-    if threshold is None:
-        threshold = getattr(cfg, "PREDICTION_THRESHOLD", 0.5)
-
-    # Ensure lengths match
-    if len(y_true_list) != len(y_proba_list):
-        raise ValueError("y_true and y_proba must have the same length")
-
-    # Compute binary predictions
-    y_pred = [1 if p >= threshold else 0 for p in y_proba_list]
-
-    metrics = {
-        "auc": float(roc_auc_score(y_true_list, y_proba_list)) if len(set(y_true_list)) > 1 else 0.0,
-        "f1": float(f1_score(y_true_list, y_pred, zero_division=0)),
-        "precision": float(precision_score(y_true_list, y_pred, zero_division=0)),
-        "recall": float(recall_score(y_true_list, y_pred, zero_division=0)),
-        "accuracy": float(accuracy_score(y_true_list, y_pred)),
-        "threshold_used": float(threshold),
+def evaluate_model(model, X_test, y_test):
+    """Evaluate model and calculate metrics"""
+    # Create DMatrix for XGBoost
+    dtest = xgb.DMatrix(X_test)
+    
+    # Get predictions
+    predictions_proba = model.predict(dtest)
+    predictions = (predictions_proba > cfg.PREDICTION_THRESHOLD).astype(int)
+    
+    # Calculate metrics
+    f1 = f1_score(y_test, predictions)
+    precision = precision_score(y_test, predictions)
+    recall = recall_score(y_test, predictions)
+    cm = confusion_matrix(y_test, predictions)
+    
+    return {
+        'f1_score': float(f1),
+        'precision': float(precision),
+        'recall': float(recall),
+        'confusion_matrix': cm.tolist()
     }
-    return metrics
 
+def save_evaluation_report(metrics, output_path):
+    """Save evaluation metrics in SageMaker format"""
+    # Create output directory
+    os.makedirs(output_path, exist_ok=True)
+    
+    # Format for SageMaker Pipeline condition check
+    evaluation_output = {
+        'metrics': {
+            'f1_score': {
+                'value': metrics['f1_score']
+            },
+            'precision': {
+                'value': metrics['precision']
+            },
+            'recall': {
+                'value': metrics['recall']
+            }
+        }
+    }
+    
+    # Save evaluation.json for pipeline
+    with open(os.path.join(output_path, 'evaluation.json'), 'w') as f:
+        json.dump(evaluation_output, f, indent=2)
+    
+    # Save detailed metrics for human review
+    with open(os.path.join(output_path, 'metrics_detailed.json'), 'w') as f:
+        json.dump(metrics, f, indent=2)
 
-def evaluate_local_csv(path: str, label_col: str = "label", prob_col: str = "probability", threshold: float | None = None) -> Dict[str, float]:
-    """Load a local CSV and compute metrics.
+def print_evaluation_results(metrics):
+    """Print formatted evaluation results"""
+    print("\n" + "="*70)
+    print("MODEL EVALUATION RESULTS")
+    print("="*70)
+    print(f"F1 Score:   {metrics['f1_score']:.4f}")
+    print(f"Precision:  {metrics['precision']:.4f}")
+    print(f"Recall:     {metrics['recall']:.4f}")
+    print(f"\nConfusion Matrix:")
+    print(f"{metrics['confusion_matrix']}")
+    print("="*70 + "\n")
 
-    The function intentionally rejects s3:// paths to keep evaluation offline
-    and predictable in notebooks; download S3 objects separately if needed.
-    """
-    if path.startswith("s3://"):
-        raise ValueError("s3:// paths are not supported by evaluate_local_csv. Download the file locally first.")
-
-    try:
-        import pandas as pd
-    except Exception as exc:
-        logger.error("pandas is required to read CSV files: %s", exc)
-        raise
-
-    df = pd.read_csv(path)
-    if label_col not in df.columns or prob_col not in df.columns:
-        raise KeyError(f"Columns {label_col} and {prob_col} must be present in CSV")
-
-    y_true = df[label_col].astype(int).tolist()
-    y_proba = df[prob_col].astype(float).tolist()
-    return compute_metrics(y_true, y_proba, threshold=threshold)
-
-
-def parse_args(argv: list[str]):
-    import argparse
-
-    p = argparse.ArgumentParser(description="Evaluate predictions CSV (local)")
-    p.add_argument("--predictions", required=True, help="Local CSV file with predictions")
-    p.add_argument("--label-col", default="label")
-    p.add_argument("--prob-col", default="probability")
-    p.add_argument("--threshold", type=float, default=None)
-    p.add_argument("--output-json", default=None, help="Optional path to write metrics JSON to")
-    return p.parse_args(argv)
-
-
-def main(argv: list[str] | None = None) -> int:
-    import json
-    import sys
-
-    argv = argv if argv is not None else sys.argv[1:]
-    args = parse_args(argv)
-
-    metrics = evaluate_local_csv(args.predictions, label_col=args.label_col, prob_col=args.prob_col, threshold=args.threshold)
-    print(json.dumps(metrics, indent=2))
-    if args.output_json:
-        with open(args.output_json, "w") as fh:
-            json.dump(metrics, fh)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+if __name__ == '__main__':
+    args = parse_args()
+    
+    print("Starting model evaluation...")
+    
+    # Load model
+    print(f"Loading model from {args.model_path}")
+    model = load_model(args.model_path)
+    
+    # Load test data
+    print(f"Loading test data from {args.test_path}")
+    X_test, y_test = load_test_data(args.test_path, args.input_content_type)
+    print(f"Test set size: {len(y_test):,} samples")
+    
+    # Evaluate
+    print("Evaluating model...")
+    metrics = evaluate_model(model, X_test, y_test)
+    
+    # Print results
+    print_evaluation_results(metrics)
+    
+    # Save results
+    print(f"Saving evaluation results to {args.output_path}")
+    save_evaluation_report(metrics, args.output_path)
+    
+    print("✅ Evaluation complete!")
