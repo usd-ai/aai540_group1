@@ -177,7 +177,7 @@ def create_pipeline():
             )
         ],
         job_arguments=[
-            '--input_content_type', input_content_type 
+            '--input-content-type', input_content_type 
         ],
         property_files=[evaluation_report]  
     )    

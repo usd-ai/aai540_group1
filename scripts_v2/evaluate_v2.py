@@ -20,14 +20,21 @@ except ImportError:
     print("Installing pyarrow...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "pyarrow"])
 
-import settings_v2 as cfg
+# ===== Container-local constants (do NOT import project config inside the Processing container) =====
+# These mirror the values in settings_v2 but must be self-contained inside
+# the Processing job because only the evaluation script is uploaded to S3.
+PROCESSING_MODEL_PATH = "/opt/ml/processing/model"
+PROCESSING_TEST_PATH = "/opt/ml/processing/test"
+PROCESSING_EVALUATION_PATH = "/opt/ml/processing/evaluation"
+XGBOOST_MODEL_FILENAME = "xgboost-model"
+PREDICTION_THRESHOLD = 0.5
 
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model-path', type=str, default=cfg.PROCESSING_MODEL_PATH)
-    parser.add_argument('--test-path', type=str, default=cfg.PROCESSING_TEST_PATH)
-    parser.add_argument('--output-path', type=str, default=cfg.PROCESSING_EVALUATION_PATH)
+    parser.add_argument('--model-path', type=str, default=PROCESSING_MODEL_PATH)
+    parser.add_argument('--test-path', type=str, default=PROCESSING_TEST_PATH)
+    parser.add_argument('--output-path', type=str, default=PROCESSING_EVALUATION_PATH)
     parser.add_argument('--input-content-type', type=str, default='application/x-parquet')
     return parser.parse_args()
 
@@ -41,7 +48,7 @@ def load_model(model_path):
     
     # Load XGBoost model
     model = xgb.Booster()
-    model.load_model(f'/tmp/model/{cfg.XGBOOST_MODEL_FILENAME}')
+    model.load_model(f'/tmp/model/{XGBOOST_MODEL_FILENAME}')
     
     return model
 
@@ -95,7 +102,7 @@ def evaluate_model(model, X_test, y_test):
     
     # Get predictions
     predictions_proba = model.predict(dtest)
-    predictions = (predictions_proba > cfg.PREDICTION_THRESHOLD).astype(int)
+    predictions = (predictions_proba > PREDICTION_THRESHOLD).astype(int)
     
     # Calculate metrics
     f1 = f1_score(y_test, predictions)
