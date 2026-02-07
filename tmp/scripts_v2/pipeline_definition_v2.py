@@ -27,11 +27,13 @@ import settings_v2 as cfg
 # UPLOAD EVALUATION SCRIPT TO S3
 # ===========================
 def upload_evaluation_script():
-    """Upload evaluation script to S3"""
+    """Upload evaluation script to S3 for use in ProcessingStep"""
     print("📤 Uploading evaluation script to S3...")
     
     s3 = boto3.client('s3')
-    local_script = 'scripts/evaluate_v2.py'
+    
+    # Both scripts are in the same directory
+    local_script = 'evaluate_v2.py'
     s3_key = f'{cfg.PREFIX}/scripts/evaluate_v2.py'
     
     if not os.path.exists(local_script):

@@ -50,8 +50,9 @@ def pipeline_exists(pipeline_name: str) -> bool:
     try:
         sm.describe_pipeline(PipelineName=pipeline_name)
         return True
-    except sm.exceptions.ResourceNotFoundException:
-        return False
+    except Exception as e:
+        if 'ResourceNotFound' in str(e):
+            return False
     except Exception:
         logger.exception("Error checking pipeline existence")
         raise
