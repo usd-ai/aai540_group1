@@ -21,7 +21,7 @@ from sagemaker.model_metrics import MetricsSource, ModelMetrics
 from sagemaker.workflow.step_collections import RegisterModel
 from sagemaker.workflow.properties import PropertyFile
 
-import setting as cfg
+import settings as cfg
 
 # ===========================
 # UPLOAD EVALUATION SCRIPT TO S3
