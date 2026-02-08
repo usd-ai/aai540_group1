@@ -1,25 +1,35 @@
 """
-CLI runner to start the SageMaker pipeline (consolidates previous run_experiment/train scripts).
+CLI runner to start the SageMaker pipeline with experiment presets.
+
+Supports two experiment modes:
+- baseline: 17 features (no volume), simpler hyperparameters
+- improved: 20 features (with volume), tuned hyperparameters
 
 Creates a pipeline execution with hyperparameters provided via CLI or falling
-back to defaults from `config.settings.DEFAULT_HYPERPARAMETERS`.
+back to experiment presets or defaults from `config.settings.DEFAULT_HYPERPARAMETERS`.
 
 This script is safe to import (no side-effects). Execution only occurs under
 `if __name__ == '__main__'`.
 
 Usage examples (run from the repository root):
 
-Dry-run (no network calls will be made):
+Run baseline experiment:
+    python run_experiment.py --experiment baseline
 
-    python scripts/run_experiment.py --dry-run --MaxDepth 7 --Eta 0.1
+Run improved experiment:
+    python run_experiment.py --experiment improved
 
-Start the pipeline (requires AWS credentials and SageMaker access):
+Custom experiment with specific parameters:
+    python run_experiment.py --MaxDepth 7 --Eta 0.1 --IncludeVolumeFeatures true
 
-    python scripts/run_experiment.py --MaxDepth 7 --Eta 0.1
+Dry-run (no network calls):
+    python run_experiment.py --experiment baseline --dry-run
+
 Notes:
-- Default values are read from `config.settings.DEFAULT_HYPERPARAMETERS`.
-- The pipeline name is taken from `config.settings.PIPELINE_NAME`.
-- Use `--display-name` to set a friendly name for the pipeline execution.
+- Experiment presets override default values
+- CLI arguments override experiment presets
+- The pipeline name is taken from `config.settings.PIPELINE_NAME`
+- Use `--display-name` to set a friendly name for the pipeline execution
 """
 from __future__ import annotations
 
@@ -35,6 +45,39 @@ import settings as cfg
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+# ===========================
+# EXPERIMENT PRESETS
+# ===========================
+
+EXPERIMENTS = {
+    'baseline': {
+        'description': 'Baseline model - 17 features (no volume), simpler hyperparameters',
+        'parameters': {
+            'IncludeVolumeFeatures': 'false',
+            'MaxDepth': 4,
+            'Eta': 0.3,
+            'NumRound': 50,
+            'Subsample': 0.7,
+            'ColsampleByTree': 0.7,
+            'ScalePosWeight': 5.5,
+            'MinChildWeight': 5
+        }
+    },
+    'improved': {
+        'description': 'Improved model - 20 features (with volume), tuned hyperparameters',
+        'parameters': {
+            'IncludeVolumeFeatures': 'true',
+            'MaxDepth': 6,
+            'Eta': 0.1,
+            'NumRound': 100,
+            'Subsample': 0.8,
+            'ColsampleByTree': 0.8,
+            'ScalePosWeight': 5.5,
+            'MinChildWeight': 1
+        }
+    }
+}
+
 
 def build_pipeline_parameters(overrides: Dict[str, str]) -> list[Dict[str, str]]:
     """Convert overrides dict to SageMaker PipelineParameters list."""
@@ -45,6 +88,7 @@ def build_pipeline_parameters(overrides: Dict[str, str]) -> list[Dict[str, str]]
 
 
 def pipeline_exists(pipeline_name: str) -> bool:
+    """Check if SageMaker pipeline exists."""
     sm = boto3.client("sagemaker", region_name=cfg.REGION)
     try:
         sm.describe_pipeline(PipelineName=pipeline_name)
@@ -52,15 +96,29 @@ def pipeline_exists(pipeline_name: str) -> bool:
     except Exception as e:
         if 'ResourceNotFound' in str(e):
             return False
-    except Exception:
         logger.exception("Error checking pipeline existence")
         raise
 
 
-def start_pipeline(pipeline_name: str, pipeline_parameters: list[Dict[str, str]], display_name: str | None = None, dry_run: bool = False):
+def start_pipeline(
+    pipeline_name: str, 
+    pipeline_parameters: list[Dict[str, str]], 
+    display_name: str | None = None, 
+    dry_run: bool = False
+):
+    """Start pipeline execution."""
     sm = boto3.client("sagemaker", region_name=cfg.REGION)
+    
     if dry_run:
-        logger.info("Dry-run mode: would start pipeline '%s' with parameters: %s", pipeline_name, pipeline_parameters)
+        logger.info("="*70)
+        logger.info("DRY-RUN MODE")
+        logger.info("="*70)
+        logger.info("Pipeline: %s", pipeline_name)
+        logger.info("Display Name: %s", display_name or f"run-{pipeline_name}")
+        logger.info("\nParameters:")
+        for param in pipeline_parameters:
+            logger.info("  %s = %s", param['Name'], param['Value'])
+        logger.info("="*70)
         return None
 
     response = sm.start_pipeline_execution(
@@ -72,29 +130,66 @@ def start_pipeline(pipeline_name: str, pipeline_parameters: list[Dict[str, str]]
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Start baseline experiment via SageMaker Pipeline")
+    """Parse command line arguments."""
+    p = argparse.ArgumentParser(
+        description="Start SageMaker Pipeline experiment",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run baseline experiment (17 features, simpler model)
+  python run_experiment.py --experiment baseline
+  
+  # Run improved experiment (20 features, tuned model)
+  python run_experiment.py --experiment improved
+  
+  # Custom parameters
+  python run_experiment.py --MaxDepth 7 --Eta 0.1 --IncludeVolumeFeatures true
+  
+  # Dry-run to see parameters without executing
+  python run_experiment.py --experiment baseline --dry-run
+        """
+    )
 
-    # Pipeline Parameters
-    p.add_argument("--TrainingDataUrl", type=str, default=None, help="S3 path to training data")
-    p.add_argument("--ValidationDataUrl", type=str, default=None, help="S3 path to validation data")
+    # Experiment preset
+    p.add_argument(
+        "--experiment", 
+        type=str, 
+        choices=['baseline', 'improved'],
+        default=None,
+        help="Run predefined experiment: baseline (17 features) or improved (20 features)"
+    )
+
+    # Data Source Parameters
+    p.add_argument("--RawDataUrl", type=str, default=None, help="S3 path to raw data")
     p.add_argument("--ModelOutputPath", type=str, default=None, help="S3 path for model output")
-    p.add_argument("--InputContentType", type=str, default=None, help="Content type (e.g., application/x-parquet, text/csv)")
+    
+    # Feature Engineering Parameters
+    p.add_argument(
+        "--IncludeVolumeFeatures", 
+        type=str, 
+        default=None,
+        choices=['true', 'false'],
+        help="Include volume features (true=20 features, false=17 features)"
+    )
+    
+    # Infrastructure Parameters
     p.add_argument("--InstanceType", type=str, default=None, help="Training instance type")
     p.add_argument("--InstanceCount", type=int, default=None, help="Training instance count")
     p.add_argument("--ApprovalStatus", type=str, default=None, help="Model approval status")
 
-    # Hyperparameters — defaults pulled from settings.DEFAULT_HYPERPARAMETERS
+    # Hyperparameters
     defaults = cfg.DEFAULT_HYPERPARAMETERS
     p.add_argument("--Objective", type=str, default=None, help="XGBoost objective")
     p.add_argument("--EvalMetric", type=str, default=None, help="XGBoost eval_metric")
-    p.add_argument("--MaxDepth", type=int, default=defaults.get("max_depth"), help="XGBoost max_depth")
-    p.add_argument("--Eta", type=float, default=defaults.get("eta"), help="XGBoost eta")
-    p.add_argument("--NumRound", type=int, default=defaults.get("num_round"), help="Number of boosting rounds")
-    p.add_argument("--Subsample", type=float, default=defaults.get("subsample"), help="Subsample")
-    p.add_argument("--ColsampleByTree", type=float, default=defaults.get("colsample_bytree"), help="colsample_bytree")
-    p.add_argument("--ScalePosWeight", type=float, default=defaults.get("scale_pos_weight"), help="scale_pos_weight")
-    p.add_argument("--MinChildWeight", type=int, default=defaults.get("min_child_weight"), help="min_child_weight")
+    p.add_argument("--MaxDepth", type=int, default=None, help="XGBoost max_depth")
+    p.add_argument("--Eta", type=float, default=None, help="XGBoost learning rate (eta)")
+    p.add_argument("--NumRound", type=int, default=None, help="Number of boosting rounds")
+    p.add_argument("--Subsample", type=float, default=None, help="Row subsample ratio")
+    p.add_argument("--ColsampleByTree", type=float, default=None, help="Column subsample ratio")
+    p.add_argument("--ScalePosWeight", type=float, default=None, help="Class balancing weight")
+    p.add_argument("--MinChildWeight", type=int, default=None, help="Minimum child weight")
 
+    # Execution options
     p.add_argument("--display-name", type=str, default=None, help="Pipeline execution display name")
     p.add_argument("--dry-run", action="store_true", help="Print params but do not start the pipeline")
 
@@ -102,18 +197,29 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Main execution function."""
     argv = argv if argv is not None else sys.argv[1:]
     args = parse_args(argv)
 
     pipeline_name = cfg.PIPELINE_NAME
 
-    # Map CLI args to pipeline parameter names expected by the pipeline
-    # Only include parameters that are explicitly provided (or have defaults we want to enforce)
-    overrides = {
-        "TrainingDataUrl": args.TrainingDataUrl,
-        "ValidationDataUrl": args.ValidationDataUrl,
+    # Start with experiment preset if specified
+    if args.experiment:
+        experiment_config = EXPERIMENTS[args.experiment]
+        logger.info("="*70)
+        logger.info("EXPERIMENT: %s", args.experiment.upper())
+        logger.info("="*70)
+        logger.info("Description: %s", experiment_config['description'])
+        logger.info("="*70)
+        overrides = experiment_config['parameters'].copy()
+    else:
+        overrides = {}
+
+    # Override with CLI arguments (CLI takes precedence)
+    cli_overrides = {
+        "RawDataUrl": args.RawDataUrl,
         "ModelOutputPath": args.ModelOutputPath,
-        "InputContentType": args.InputContentType,
+        "IncludeVolumeFeatures": args.IncludeVolumeFeatures,
         "InstanceType": args.InstanceType,
         "InstanceCount": args.InstanceCount,
         "ApprovalStatus": args.ApprovalStatus,
@@ -128,23 +234,54 @@ def main(argv: list[str] | None = None) -> int:
         "MinChildWeight": args.MinChildWeight,
     }
     
-    # Filter out None values to let Pipeline use its defaults
-    overrides = {k: v for k, v in overrides.items() if v is not None}
+    # Filter out None values and merge with experiment preset
+    cli_overrides = {k: v for k, v in cli_overrides.items() if v is not None}
+    overrides.update(cli_overrides)
 
-    logger.info("Starting experiment: pipeline=%s, overrides=%s", pipeline_name, overrides)
+    logger.info("\nStarting pipeline execution:")
+    logger.info("  Pipeline: %s", pipeline_name)
+    logger.info("  Parameters: %s", overrides)
 
-    # Ensure pipeline exists (idempotent check)
+    # Ensure pipeline exists
     if not pipeline_exists(pipeline_name):
-        logger.error("Pipeline '%s' not found. Please create it first (run pipeline_definition or pipeline_definition).", pipeline_name)
+        logger.error(
+            "Pipeline '%s' not found. Please create it first:\n"
+            "  python pipeline_definition.py",
+            pipeline_name
+        )
         return 2
 
-    pipeline_params = build_pipeline_parameters(overrides)
-
-    arn = start_pipeline(pipeline_name, pipeline_params, display_name=args.display_name, dry_run=args.dry_run)
-    if arn:
-        logger.info("Pipeline execution started. ARN: %s", arn)
+    # Generate display name
+    if args.display_name:
+        display_name = args.display_name
+    elif args.experiment:
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        display_name = f"{args.experiment}-{timestamp}"
     else:
-        logger.info("No ARN returned (dry-run or failure).")
+        display_name = None
+
+    # Build parameters and start pipeline
+    pipeline_params = build_pipeline_parameters(overrides)
+    arn = start_pipeline(pipeline_name, pipeline_params, display_name=display_name, dry_run=args.dry_run)
+    
+    if arn:
+        logger.info("\n" + "="*70)
+        logger.info("✅ PIPELINE EXECUTION STARTED")
+        logger.info("="*70)
+        logger.info("ARN: %s", arn)
+        logger.info("Display Name: %s", display_name)
+        logger.info("\n⏱️  Expected Duration:")
+        logger.info("  Feature Engineering: ~2-3 minutes")
+        logger.info("  Training: ~8-12 minutes")
+        logger.info("  Evaluation: ~2-3 minutes")
+        logger.info("  Total: ~12-18 minutes")
+        logger.info("\n📊 Monitor in SageMaker Studio:")
+        logger.info("  Pipelines → %s → %s", pipeline_name, display_name)
+        logger.info("="*70)
+    elif not args.dry_run:
+        logger.error("Pipeline execution failed (no ARN returned)")
+        return 1
 
     return 0
 

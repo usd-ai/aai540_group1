@@ -1,6 +1,6 @@
 """
-SageMaker Pipeline Definition for Flight Delay Prediction (v2)
-Creates an automated ML pipeline with training, evaluation, and model registration
+SageMaker Pipeline Definition for Flight Delay Prediction (v3)
+End-to-end pipeline: Feature Engineering → Training → Evaluation → Registration
 Uses centralized configuration from settings
 """
 import os
@@ -24,29 +24,31 @@ from sagemaker.workflow.properties import PropertyFile
 import settings as cfg
 
 # ===========================
-# UPLOAD EVALUATION SCRIPT TO S3
+# UPLOAD SCRIPTS TO S3
 # ===========================
-def upload_evaluation_script():
-    """Upload evaluation script to S3 for use in ProcessingStep"""
-    print("📤 Uploading evaluation script to S3...")
+def upload_scripts():
+    """Upload feature engineering and evaluation scripts to S3"""
+    print("📤 Uploading scripts to S3...")
     
     s3 = boto3.client('s3')
     
-    # Both scripts are in the same directory
-    local_script = 'evaluate.py'
-    s3_key = f'{cfg.PREFIX}/scripts/evaluate.py'
+    scripts = {
+        'feature_engineering.py': f'{cfg.PREFIX}/scripts/feature_engineering.py',
+        'evaluate.py': f'{cfg.PREFIX}/scripts/evaluate.py'
+    }
     
-    if not os.path.exists(local_script):
-        raise FileNotFoundError(f"Evaluation script not found at {local_script}")
-    
-    s3.upload_file(local_script, cfg.BUCKET, s3_key)
-    print(f"✅ Uploaded to s3://{cfg.BUCKET}/{s3_key}")
+    for local_script, s3_key in scripts.items():
+        if os.path.exists(local_script):
+            s3.upload_file(local_script, cfg.BUCKET, s3_key)
+            print(f"✅ Uploaded {local_script} to s3://{cfg.BUCKET}/{s3_key}")
+        else:
+            print(f"⚠️  Warning: {local_script} not found")
 
 # ===========================
 # DEFINE PIPELINE
 # ===========================
 def create_pipeline():
-    """Create SageMaker Pipeline"""
+    """Create SageMaker Pipeline with Feature Engineering"""
     
     # Setup
     role = cfg.ROLE
@@ -63,18 +65,38 @@ def create_pipeline():
     # ===========================
     # PIPELINE PARAMETERS
     # ===========================
+    
     # 1. Data Source Parameters
-    training_data_url = ParameterString(name="TrainingDataUrl", default_value=cfg.get_s3_path("train"))
-    validation_data_url = ParameterString(name="ValidationDataUrl", default_value=cfg.get_s3_path("validation"))
-    model_output_path = ParameterString(name="ModelOutputPath", default_value=cfg.get_s3_path("models"))
-    input_content_type = ParameterString(name="InputContentType", default_value="application/x-parquet")
+    raw_data_url = ParameterString(
+        name="RawDataUrl", 
+        default_value=f's3://{cfg.BUCKET}/{cfg.PREFIX}/pipeline-data/raw/'
+    )
+    model_output_path = ParameterString(
+        name="ModelOutputPath", 
+        default_value=cfg.get_s3_path("models")
+    )
     
-    # 2. Infrastructure Parameters
-    instance_type = ParameterString(name="InstanceType", default_value=cfg.TRAINING_INSTANCE_TYPE)
-    instance_count = ParameterInteger(name="InstanceCount", default_value=cfg.TRAINING_INSTANCE_COUNT)
-    approval_status = ParameterString(name="ApprovalStatus", default_value=cfg.MODEL_APPROVAL_STATUS)
+    # 2. Feature Engineering Parameters
+    include_volume_features = ParameterString(
+        name='IncludeVolumeFeatures', 
+        default_value='true'
+    )
     
-    # 3. Model Hyperparameters
+    # 3. Infrastructure Parameters
+    instance_type = ParameterString(
+        name="InstanceType", 
+        default_value=cfg.TRAINING_INSTANCE_TYPE
+    )
+    instance_count = ParameterInteger(
+        name="InstanceCount", 
+        default_value=cfg.TRAINING_INSTANCE_COUNT
+    )
+    approval_status = ParameterString(
+        name="ApprovalStatus", 
+        default_value=cfg.MODEL_APPROVAL_STATUS
+    )
+    
+    # 4. Model Hyperparameters
     objective = ParameterString(name="Objective", default_value="binary:logistic")
     eval_metric = ParameterString(name="EvalMetric", default_value="auc")
     max_depth = ParameterInteger(name='MaxDepth', default_value=cfg.DEFAULT_HYPERPARAMETERS['max_depth'])
@@ -86,9 +108,60 @@ def create_pipeline():
     min_child_weight = ParameterInteger(name='MinChildWeight', default_value=cfg.DEFAULT_HYPERPARAMETERS['min_child_weight'])
     
     print(f"\n📋 Pipeline Parameters defined:")
-    print(f"   - Data Sources (Training, Validation, Output)")
+    print(f"   - Feature Engineering (IncludeVolumeFeatures)")
+    print(f"   - Data Sources (Raw Data, Model Output)")
     print(f"   - Infrastructure (Instance Type/Count)")
     print(f"   - Hyperparameters (MaxDepth, Eta, etc.)")
+    
+    # ===========================
+    # STEP 0: FEATURE ENGINEERING
+    # ===========================
+    print(f"\n🔧 Defining Feature Engineering Step...")
+    
+    feature_script_path = f's3://{cfg.BUCKET}/{cfg.PREFIX}/scripts/feature_engineering.py'
+    
+    feature_processor = ScriptProcessor(
+        role=role,
+        image_uri=sagemaker.image_uris.retrieve('sklearn', region, version='1.0-1'),
+        instance_type=cfg.PROCESSING_INSTANCE_TYPE,
+        instance_count=cfg.PROCESSING_INSTANCE_COUNT,
+        base_job_name='flight-delay-features',
+        command=['python3']
+    )
+    
+    feature_engineering_step = ProcessingStep(
+        name='FeatureEngineering',
+        processor=feature_processor,
+        code=feature_script_path,
+        job_arguments=[
+            '--include-volume-features', include_volume_features
+        ],
+        inputs=[
+            ProcessingInput(
+                source=raw_data_url,
+                destination='/opt/ml/processing/input'
+            )
+        ],
+        outputs=[
+            ProcessingOutput(
+                output_name='train',
+                source='/opt/ml/processing/output/train',
+                destination=f's3://{cfg.BUCKET}/{cfg.PREFIX}/processed-data/train/'
+            ),
+            ProcessingOutput(
+                output_name='validation',
+                source='/opt/ml/processing/output/validation',
+                destination=f's3://{cfg.BUCKET}/{cfg.PREFIX}/processed-data/validation/'
+            ),
+            ProcessingOutput(
+                output_name='test',
+                source='/opt/ml/processing/output/test',
+                destination=f's3://{cfg.BUCKET}/{cfg.PREFIX}/processed-data/test/'
+            )
+        ]
+    )
+    
+    print("   ✅ Feature engineering step defined")
     
     # ===========================
     # STEP 1: TRAINING
@@ -123,8 +196,14 @@ def create_pipeline():
         name='TrainFlightDelayModel',
         estimator=xgb_estimator,
         inputs={
-            'train': TrainingInput(s3_data=training_data_url, content_type=input_content_type),
-            'validation': TrainingInput(s3_data=validation_data_url, content_type=input_content_type)
+            'train': TrainingInput(
+                s3_data=feature_engineering_step.properties.ProcessingOutputConfig.Outputs['train'].S3Output.S3Uri,
+                content_type='text/csv'
+            ),
+            'validation': TrainingInput(
+                s3_data=feature_engineering_step.properties.ProcessingOutputConfig.Outputs['validation'].S3Output.S3Uri,
+                content_type='text/csv'
+            )
         }
     )
     
@@ -133,11 +212,11 @@ def create_pipeline():
     # ===========================
     # STEP 2: EVALUATION
     # ===========================
-    print(f"🔧 Defining Evaluation Step...")
+    print(f"\n🔧 Defining Evaluation Step...")
     
-    script_path = f's3://{cfg.BUCKET}/{cfg.PREFIX}/scripts/evaluate.py'
+    eval_script_path = f's3://{cfg.BUCKET}/{cfg.PREFIX}/scripts/evaluate.py'
     
-    script_processor = ScriptProcessor(
+    eval_processor = ScriptProcessor(
         role=role,
         image_uri=cfg.xgboost_image_uri(),
         instance_type=cfg.PROCESSING_INSTANCE_TYPE,
@@ -153,19 +232,17 @@ def create_pipeline():
         path='evaluation.json'
     )
     
-    # NOTE: We pass the Validation Data as input to the evaluation script
-    # This allows us to evaluate on the validation set or a separate test set
     evaluation_step = ProcessingStep(
         name='EvaluateModel',
-        processor=script_processor,
-        code=script_path,
+        processor=eval_processor,
+        code=eval_script_path,
         inputs=[
             ProcessingInput(
                 source=training_step.properties.ModelArtifacts.S3ModelArtifacts,
                 destination=cfg.PROCESSING_MODEL_PATH
             ),
             ProcessingInput(
-                source=validation_data_url, # Using validation data for evaluation in pipeline
+                source=feature_engineering_step.properties.ProcessingOutputConfig.Outputs['test'].S3Output.S3Uri,
                 destination=cfg.PROCESSING_TEST_PATH
             )
         ],
@@ -176,15 +253,15 @@ def create_pipeline():
                 destination=cfg.get_s3_path('evaluation')
             )
         ],
-        job_arguments=[
-            '--input-content-type', input_content_type 
-        ],
         property_files=[evaluation_report]  
-    )    
+    )
+    
+    print("   ✅ Evaluation step defined")
+    
     # ===========================
     # STEP 3: CONDITION CHECK
     # ===========================
-    print(f"🔧 Defining Condition Step...")
+    print(f"\n🔧 Defining Condition Step...")
     
     f1_condition = ConditionGreaterThanOrEqualTo(
         left=JsonGet(
@@ -200,7 +277,7 @@ def create_pipeline():
     # ===========================
     # STEP 4: MODEL REGISTRATION
     # ===========================
-    print(f"🔧 Defining Model Registration Step...")
+    print(f"\n🔧 Defining Model Registration Step...")
     
     model_metrics = ModelMetrics(
         model_statistics=MetricsSource(
@@ -227,7 +304,7 @@ def create_pipeline():
     # ===========================
     # STEP 5: CONDITIONAL STEP
     # ===========================
-    print(f"🔧 Defining Conditional Step...")
+    print(f"\n🔧 Defining Conditional Step...")
     
     condition_step = ConditionStep(
         name='CheckF1Threshold',
@@ -246,12 +323,20 @@ def create_pipeline():
     pipeline = Pipeline(
         name=cfg.PIPELINE_NAME,
         parameters=[
-            training_data_url, validation_data_url, model_output_path, input_content_type,
+            # Data and features
+            raw_data_url, model_output_path, include_volume_features,
+            # Infrastructure
             instance_type, instance_count, approval_status,
+            # Hyperparameters
             objective, eval_metric, max_depth, eta, num_round, subsample,
             colsample_bytree, scale_pos_weight, min_child_weight
         ],
-        steps=[training_step, evaluation_step, condition_step],
+        steps=[
+            feature_engineering_step,  # Step 0: Feature Engineering
+            training_step,              # Step 1: Training
+            evaluation_step,            # Step 2: Evaluation
+            condition_step              # Step 3: Condition → Registration
+        ],
         sagemaker_session=session
     )
     
@@ -261,8 +346,8 @@ def create_pipeline():
 # MAIN
 # ===========================
 if __name__ == '__main__':
-    # Upload evaluation script
-    upload_evaluation_script()
+    # Upload scripts
+    upload_scripts()
     
     # Create pipeline
     pipeline, role = create_pipeline()
@@ -275,6 +360,11 @@ if __name__ == '__main__':
     print(f"🎉 PIPELINE CREATED SUCCESSFULLY!")
     print(f"{'='*70}")
     print(f"\nPipeline Name: {cfg.PIPELINE_NAME}")
+    print(f"\n📊 Pipeline Steps:")
+    print(f"   0. Feature Engineering (raw parquet → processed CSV)")
+    print(f"   1. Training (XGBoost)")
+    print(f"   2. Evaluation (F1, Precision, Recall)")
+    print(f"   3. Conditional Registration (if F1 >= {cfg.F1_THRESHOLD})")
     print(f"\n✅ View pipeline in SageMaker Studio")
     print(f"✅ Ready to run experiments with run_experiment.py")
     print(f"{'='*70}\n")
