@@ -24,9 +24,12 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+import sys
+
 import boto3
 import sagemaker
 from botocore.exceptions import ClientError
+from sagemaker.model import ModelPackage
 
 # Optional: load environment variables from a .env file when present
 # (useful for local development/test). This requires `python-dotenv`.
@@ -124,8 +127,20 @@ S3_PATHS: Dict[str, str] = {
     "inference_input":   s3_uri("data", "inference"),
     # ── Scripts (uploaded to S3 for Processing jobs) ──
     "scripts":           s3_uri("scripts"),
+    # ── Processed data (feature-engineered pipeline outputs) ──
+    "processed_train":       s3_uri("processed-data", "train"),
+    "processed_validation":  s3_uri("processed-data", "validation"),
+    "processed_test":        s3_uri("processed-data", "test"),
+    "processed_production":  s3_uri("processed-data", "production"),
     # ── Monitoring ──
     "monitoring":        s3_uri("monitoring"),
+    "data_capture":      s3_uri("monitoring", "datacapture"),
+    "baseline_data":     s3_uri("monitoring", "baselining", "data"),
+    "baseline_results":  s3_uri("monitoring", "baselining", "results"),
+    "monitor_reports":   s3_uri("monitoring", "reports"),
+    "ground_truth":      s3_uri("monitoring", "ground_truth"),
+    # ── Pipeline data (cleaned splits) ──
+    "pipeline_raw":      s3_uri("pipeline-data", "raw"),
 }
 
 
@@ -147,6 +162,9 @@ TRANSFORM_INSTANCE_COUNT: int = 1
 
 INFERENCE_INSTANCE_TYPES: list[str] = ["ml.m5.xlarge"]
 TRANSFORM_INSTANCE_TYPES: list[str] = ["ml.m5.xlarge"]
+
+MONITORING_INSTANCE_TYPE: str = "ml.m5.xlarge"
+MONITORING_INSTANCE_COUNT: int = 1
 
 # ──────────────────────────────────────────────
 # XGBoost Container
@@ -291,6 +309,73 @@ def ensure_pipeline_exists(pipeline_name: str = PIPELINE_NAME) -> bool:
         logger.info("Pipeline '%s' does not exist yet.", pipeline_name)
         return False
 
+
+# ──────────────────────────────────────────────
+# Model Monitoring
+# ──────────────────────────────────────────────
+ENDPOINT_NAME_PREFIX: str = "flight-delay-endpoint"
+MONITOR_SCHEDULE_PREFIX: str = "flight-delay-monitor"
+DATA_CAPTURE_SAMPLING_PERCENTAGE: int = 100
+MONITORING_MAX_RUNTIME_SECONDS: int = 1800
+MONITORING_VOLUME_SIZE_GB: int = 20
+MONITORING_PROBLEM_TYPE: str = "BinaryClassification"
+
+# Monitoring schedule frequency: "hourly" or "daily"
+# "hourly" = cron(0 * ? * * *)  — good for demos/testing
+# "daily"  = cron(0 0 ? * * *)  — typical for production (runs at midnight UTC)
+MONITORING_SCHEDULE_FREQUENCY: str = os.environ.get("MONITORING_FREQUENCY", "daily")
+
+# Number of test-set records to use for baselining (need >= 200 for std-dev)
+BASELINE_SAMPLE_SIZE: int = 500
+
+# Number of December (production) records to stream through the endpoint
+# December data is uploaded to s3://.../pipeline-data/raw/prod.csv
+PRODUCTION_SAMPLE_SIZE: int = 500
+
+# CloudWatch alarm settings
+CW_ALARM_METRIC: str = "f1"
+CW_ALARM_THRESHOLD: float = F1_THRESHOLD
+CW_ALARM_PERIOD_SECONDS: int = 600
+CW_ALARM_EVALUATION_PERIODS: int = 1
+
+def find_approved_model() -> dict:
+    """Return the latest approved model package from the registry.
+
+    Exits with code 1 if no approved model is found.
+    """
+    sm = boto3.client("sagemaker", region_name=REGION)
+    resp = sm.list_model_packages(
+        ModelPackageGroupName=MODEL_PACKAGE_GROUP,
+        ModelApprovalStatus="Approved",
+        SortBy="CreationTime",
+        SortOrder="Descending",
+        MaxResults=1,
+    )
+    if not resp["ModelPackageSummaryList"]:
+        logger.error(
+            "No approved models found in '%s'. "
+            "Approve a model in SageMaker Studio first.",
+            MODEL_PACKAGE_GROUP,
+        )
+        sys.exit(1)
+    return resp["ModelPackageSummaryList"][0]
+
+
+def create_model_from_registry(model_package_arn: str) -> ModelPackage:
+    """Create a SageMaker ModelPackage object from a registry ARN."""
+    return ModelPackage(
+        role=ROLE,
+        model_package_arn=model_package_arn,
+        sagemaker_session=sagemaker_session,
+    )
+
+
+def monitor_image_uri() -> str:
+    """Return the ECR URI for the SageMaker Model Monitor container."""
+    return sagemaker.image_uris.retrieve(
+        framework="model-monitor",
+        region=REGION,
+    )
 
 # ──────────────────────────────────────────────
 # Pretty-print Config

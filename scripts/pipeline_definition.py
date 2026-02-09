@@ -157,6 +157,11 @@ def create_pipeline():
                 output_name='test',
                 source='/opt/ml/processing/output/test',
                 destination=f's3://{cfg.BUCKET}/{cfg.PREFIX}/processed-data/test/'
+            ),
+            ProcessingOutput(
+                output_name='production',
+                source='/opt/ml/processing/output/production',
+                destination=cfg.get_s3_path('processed_production'),
             )
         ]
     )

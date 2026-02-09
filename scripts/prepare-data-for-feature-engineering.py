@@ -32,7 +32,7 @@ print("=" * 70)
 
 print("Loading flights.csv (this may take 30-60 seconds)...")
 df_flights = pd.read_csv(BASE_URL + "flights.csv", low_memory=False)
-print(f"✓ Flights loaded: {len(df_flights):,} rows × {df_flights.shape[1]} columns")
+print(f"✓ Flights loaded: {len(df_flights):,} rows x {df_flights.shape[1]} columns")
 
 print("\nLoading airlines.csv...")
 df_airlines = pd.read_csv(BASE_URL + "airlines.csv")
@@ -43,7 +43,7 @@ df_airports = pd.read_csv(BASE_URL + "airports.csv")
 print(f"✓ Airports loaded: {len(df_airports):,} rows")
 
 # ============================================================================
-# 2. Data Cleaning (EXACTLY as in notebook)
+# 2. Data Cleaning 
 # ============================================================================
 print("\n" + "=" * 70)
 print("DATA CLEANING")
@@ -186,10 +186,12 @@ RAW_COLUMNS = [
 train_df[RAW_COLUMNS].to_csv('train_raw.csv', index=False)
 val_df[RAW_COLUMNS].to_csv('val_raw.csv', index=False)
 test_df[RAW_COLUMNS].to_csv('test_raw.csv', index=False)
+prod_df[RAW_COLUMNS].to_csv('prod_raw.csv', index=False)
 
 print(f"✓ train_raw.csv ({len(train_df):,} rows)")
 print(f"✓ val_raw.csv   ({len(val_df):,} rows)")
 print(f"✓ test_raw.csv  ({len(test_df):,} rows)")
+print(f"✓ prod_raw.csv  ({len(prod_df):,} rows)")
 
 # ============================================================================
 # 8. Upload to S3
@@ -203,7 +205,8 @@ s3 = boto3.client('s3', region_name=cfg.REGION)
 files_to_upload = {
     'train_raw.csv': f'{OUTPUT_PREFIX}train.csv',
     'val_raw.csv': f'{OUTPUT_PREFIX}val.csv',
-    'test_raw.csv': f'{OUTPUT_PREFIX}test.csv'
+    'test_raw.csv': f'{OUTPUT_PREFIX}test.csv',
+    'prod_raw.csv': f'{OUTPUT_PREFIX}prod.csv',
 }
 
 for local_file, s3_key in files_to_upload.items():
