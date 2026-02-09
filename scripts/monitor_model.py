@@ -129,7 +129,7 @@ def generate_baseline(predictor: Predictor, endpoint_name: str) -> ModelQualityM
     print(f"  Baseline predictions complete: {cfg.BASELINE_SAMPLE_SIZE} records")
 
     # Upload baseline predictions to S3
-    baseline_data_uri = cfg.get_s3_path("baseline_data")
+    baseline_data_uri = cfg.get_s3_path("baseline_data").rstrip("/")
     baseline_dataset_uri = S3Uploader.upload(baseline_file, baseline_data_uri)
     print(f"  Uploaded baseline to: {baseline_dataset_uri}")
 
