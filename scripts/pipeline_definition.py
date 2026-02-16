@@ -16,10 +16,11 @@ from sagemaker.workflow.steps import TrainingStep, ProcessingStep
 from sagemaker.workflow.parameters import ParameterInteger, ParameterFloat, ParameterString
 from sagemaker.workflow.conditions import ConditionGreaterThanOrEqualTo
 from sagemaker.workflow.condition_step import ConditionStep
-from sagemaker.workflow.functions import JsonGet
+from sagemaker.workflow.functions import JsonGet, Join
 from sagemaker.model_metrics import MetricsSource, ModelMetrics
 from sagemaker.workflow.step_collections import RegisterModel
 from sagemaker.workflow.properties import PropertyFile
+
 
 import settings as cfg
 
@@ -328,26 +329,38 @@ def create_pipeline():
         ],
         job_arguments=[
             '--threshold', str(cfg.F1_THRESHOLD),
-             '--actual-f1', JsonGet(
-                        step_name=evaluation_step.name,
-                        property_file='evaluation',
-                        json_path='metrics.f1_score.value'
-                    ),
-            '--precision', JsonGet(
-                step_name=evaluation_step.name,
-                property_file='evaluation',
-                json_path='metrics.precision.value'
+            '--actual-f1', Join(
+                on='',
+                values=[JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.f1_score.value'
+                )]
             ),
-            '--recall', JsonGet(
-                step_name=evaluation_step.name,
-                property_file='evaluation',
-                json_path='metrics.recall.value'
+            '--precision', Join(
+                on='',
+                values=[JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.precision.value'
+                )]
             ),
-            '--auc', JsonGet(
-                step_name=evaluation_step.name,
-                property_file='evaluation',
-                json_path='metrics.auc.value'
-            )            
+            '--recall', Join(
+                on='',
+                values=[JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.recall.value'
+                )]
+            ),
+            '--auc', Join(
+                on='',
+                values=[JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.auc.value'
+                )]
+            )
         ]
     )
     
