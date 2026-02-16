@@ -13,6 +13,7 @@ from sagemaker.processing import ProcessingInput, ProcessingOutput, ScriptProces
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.steps import TrainingStep, ProcessingStep
+from sagemaker.workflow.fail_step import FailStep
 from sagemaker.workflow.parameters import ParameterInteger, ParameterFloat, ParameterString
 from sagemaker.workflow.conditions import ConditionGreaterThanOrEqualTo
 from sagemaker.workflow.condition_step import ConditionStep
@@ -315,7 +316,7 @@ def create_pipeline():
         command=['python3']
     )
 
-    fail_step = ProcessingStep(
+    reject_step = ProcessingStep(
         name='RejectModel',
         processor=fail_processor,
         code=f's3://{cfg.BUCKET}/{cfg.PREFIX}/scripts/reject_model.py',
@@ -363,12 +364,31 @@ def create_pipeline():
             )
         ]
     )
+    step_fail = FailStep(
+        name="ModelRejectionFailure",
+        error_message=Join(
+            on=" ",
+            values=[
+                "Model rejected: F1 Score",
+                JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.f1_score.value'
+                ),
+                "is below threshold",
+                str(cfg.F1_THRESHOLD),
+                "- See rejection report in S3:",
+                f"s3://{cfg.BUCKET}/{cfg.PREFIX}/rejections/"
+            ]
+        ),
+        depends_on=[reject_step] 
+    )    
     
     condition_step = ConditionStep(
         name='CheckF1Threshold',
         conditions=[f1_condition],
         if_steps=[register_step],      # Model meets threshold → Register
-        else_steps=[fail_step]          # Model fails threshold → Reject
+        else_steps=[reject_step, step_fail]          # Model fails threshold → Reject
     )
     
     print(f"   ✅ Conditional step defined")
