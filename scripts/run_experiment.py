@@ -2,8 +2,8 @@
 CLI runner to start the SageMaker pipeline with experiment presets.
 
 Supports two experiment modes:
-- baseline: 17 features (no volume), simpler hyperparameters
-- improved: 20 features (with volume), tuned hyperparameters
+- baseline: less number features , simpler hyperparameters
+- improved: 20 features, tuned hyperparameters
 
 Creates a pipeline execution with hyperparameters provided via CLI or falling
 back to experiment presets or defaults from `config.settings.DEFAULT_HYPERPARAMETERS`.
@@ -20,7 +20,7 @@ Run improved experiment:
     python run_experiment.py --experiment improved
 
 Custom experiment with specific parameters:
-    python run_experiment.py --MaxDepth 7 --Eta 0.1 --IncludeVolumeFeatures true
+    python run_experiment.py --MaxDepth 7 --Eta 0.1 --UseAdvancedFeatures true
 
 Dry-run (no network calls):
     python run_experiment.py --experiment baseline --dry-run
@@ -51,22 +51,22 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 EXPERIMENTS = {
     'baseline': {
-        'description': 'Baseline model - 17 features (no volume), simpler hyperparameters',
+        'description': 'Baseline model, simpler hyperparameters',
         'parameters': {
-            'IncludeVolumeFeatures': 'false',
-            'MaxDepth': 4,
-            'Eta': 0.3,
-            'NumRound': 50,
-            'Subsample': 0.7,
-            'ColsampleByTree': 0.7,
-            'ScalePosWeight': 5.5,
-            'MinChildWeight': 5
+            'UseAdvancedFeatures': 'false',  # Only 17 features
+            'MaxDepth': 1,
+            'Eta': 0.9,
+            'NumRound': 10,
+            'Subsample': 0.4,
+            'ColsampleByTree': 0.4,
+            'ScalePosWeight': 1.0,
+            'MinChildWeight': 20
         }
     },
     'improved': {
-        'description': 'Improved model - 20 features (with volume), tuned hyperparameters',
+        'description': 'Improved model - 20 features, tuned hyperparameters',
         'parameters': {
-            'IncludeVolumeFeatures': 'true',
+            'UseAdvancedFeatures': 'true',
             'MaxDepth': 6,
             'Eta': 0.1,
             'NumRound': 100,
@@ -143,7 +143,7 @@ Examples:
   python run_experiment.py --experiment improved
   
   # Custom parameters
-  python run_experiment.py --MaxDepth 7 --Eta 0.1 --IncludeVolumeFeatures true
+  python run_experiment.py --MaxDepth 7 --Eta 0.1 --UseAdvancedFeatures true
   
   # Dry-run to see parameters without executing
   python run_experiment.py --experiment baseline --dry-run
@@ -165,11 +165,11 @@ Examples:
     
     # Feature Engineering Parameters
     p.add_argument(
-        "--IncludeVolumeFeatures", 
+        "--UseAdvancedFeatures", 
         type=str, 
         default=None,
         choices=['true', 'false'],
-        help="Include volume features (true=20 features, false=17 features)"
+        help="UseAdvancedFeatures"
     )
     
     # Infrastructure Parameters
@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
     cli_overrides = {
         "RawDataUrl": args.RawDataUrl,
         "ModelOutputPath": args.ModelOutputPath,
-        "IncludeVolumeFeatures": args.IncludeVolumeFeatures,
+        "UseAdvancedFeatures": args.UseAdvancedFeatures,
         "InstanceType": args.InstanceType,
         "InstanceCount": args.InstanceCount,
         "ApprovalStatus": args.ApprovalStatus,
