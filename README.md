@@ -82,7 +82,7 @@ End-to-end ML pipeline for predicting U.S. domestic flight delays (>15 minutes) 
 │  Phase 4: Automated Alerting                                       │
 │  ┌─────────────────────────────────────────────────┐               │
 │  │ CloudWatch Alarm: flight-delay-model-quality-f1 │               │
-│  │ Trigger: Avg F1 < threshold over 10 min              │               │
+│  │ Trigger: Avg F1 < threshold over 10 min         │               │
 │  │ Missing data = breaching (assumes degradation)  │               │
 │  └────────────────────┬────────────────────────────┘               │
 │                       │                                            │
