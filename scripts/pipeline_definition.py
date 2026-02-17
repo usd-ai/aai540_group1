@@ -13,28 +13,28 @@ from sagemaker.processing import ProcessingInput, ProcessingOutput, ScriptProces
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.workflow.pipeline import Pipeline
 from sagemaker.workflow.steps import TrainingStep, ProcessingStep
+from sagemaker.workflow.fail_step import FailStep
 from sagemaker.workflow.parameters import ParameterInteger, ParameterFloat, ParameterString
 from sagemaker.workflow.conditions import ConditionGreaterThanOrEqualTo
 from sagemaker.workflow.condition_step import ConditionStep
-from sagemaker.workflow.functions import JsonGet
+from sagemaker.workflow.functions import JsonGet, Join
 from sagemaker.model_metrics import MetricsSource, ModelMetrics
 from sagemaker.workflow.step_collections import RegisterModel
 from sagemaker.workflow.properties import PropertyFile
 
+
 import settings as cfg
 
-# ===========================
-# UPLOAD SCRIPTS TO S3
-# ===========================
 def upload_scripts():
-    """Upload feature engineering and evaluation scripts to S3"""
+    """Upload feature engineering, evaluation, and rejection scripts to S3"""
     print("📤 Uploading scripts to S3...")
     
     s3 = boto3.client('s3')
     
     scripts = {
         'feature_engineering.py': f'{cfg.PREFIX}/scripts/feature_engineering.py',
-        'evaluate.py': f'{cfg.PREFIX}/scripts/evaluate.py'
+        'evaluate.py': f'{cfg.PREFIX}/scripts/evaluate.py',
+        'reject_model.py': f'{cfg.PREFIX}/scripts/reject_model.py'  # ← Add this
     }
     
     for local_script, s3_key in scripts.items():
@@ -77,8 +77,8 @@ def create_pipeline():
     )
     
     # 2. Feature Engineering Parameters
-    include_volume_features = ParameterString(
-        name='IncludeVolumeFeatures', 
+    use_advanced_features = ParameterString(
+        name='UseAdvancedFeatures',  # ← Better name
         default_value='true'
     )
     
@@ -108,7 +108,7 @@ def create_pipeline():
     min_child_weight = ParameterInteger(name='MinChildWeight', default_value=cfg.DEFAULT_HYPERPARAMETERS['min_child_weight'])
     
     print(f"\n📋 Pipeline Parameters defined:")
-    print(f"   - Feature Engineering (IncludeVolumeFeatures)")
+    print(f"   - Feature Engineering (UseAdvancedFeatures)")
     print(f"   - Data Sources (Raw Data, Model Output)")
     print(f"   - Infrastructure (Instance Type/Count)")
     print(f"   - Hyperparameters (MaxDepth, Eta, etc.)")
@@ -134,7 +134,7 @@ def create_pipeline():
         processor=feature_processor,
         code=feature_script_path,
         job_arguments=[
-            '--include-volume-features', include_volume_features
+            '--use-advanced-features', use_advanced_features
         ],
         inputs=[
             ProcessingInput(
@@ -300,20 +300,101 @@ def create_pipeline():
     )
     
     print("   ✅ Model registration step defined")
-    
+
     # ===========================
-    # STEP 5: CONDITIONAL STEP
+    # STEP 5: CONDITIONAL STEP WITH FAILURE HANDLING
     # ===========================
-    print(f"\n🔧 Defining Conditional Step...")
+    print(f"\n🔧 Defining Conditional Step with Failure Handling...")
+
+    # Create a Processing step that runs when condition FAILS
+    fail_processor = ScriptProcessor(
+        role=role,
+        image_uri=sagemaker.image_uris.retrieve('sklearn', region, version='1.0-1'),
+        instance_type=cfg.PROCESSING_INSTANCE_TYPE,
+        instance_count=1,
+        base_job_name='model-rejection',
+        command=['python3']
+    )
+
+    reject_step = ProcessingStep(
+        name='RejectModel',
+        processor=fail_processor,
+        code=f's3://{cfg.BUCKET}/{cfg.PREFIX}/scripts/reject_model.py',
+        inputs=[],
+        outputs=[
+            ProcessingOutput(
+                output_name='rejection',
+                source='/opt/ml/processing/rejection',
+                destination=f's3://{cfg.BUCKET}/{cfg.PREFIX}/rejections/'
+            )
+        ],
+        job_arguments=[
+            '--threshold', str(cfg.F1_THRESHOLD),
+            '--actual-f1', Join(
+                on='',
+                values=[JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.f1_score.value'
+                )]
+            ),
+            '--precision', Join(
+                on='',
+                values=[JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.precision.value'
+                )]
+            ),
+            '--recall', Join(
+                on='',
+                values=[JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.recall.value'
+                )]
+            ),
+            '--auc', Join(
+                on='',
+                values=[JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.auc.value'
+                )]
+            )
+        ]
+    )
+    step_fail = FailStep(
+        name="ModelRejectionFailure",
+        error_message=Join(
+            on=" ",
+            values=[
+                "Model rejected: F1 Score",
+                JsonGet(
+                    step_name=evaluation_step.name,
+                    property_file='evaluation',
+                    json_path='metrics.f1_score.value'
+                ),
+                "is below threshold",
+                str(cfg.F1_THRESHOLD),
+                "- See rejection report in S3:",
+                f"s3://{cfg.BUCKET}/{cfg.PREFIX}/rejections/"
+            ]
+        ),
+        depends_on=[reject_step] 
+    )    
     
     condition_step = ConditionStep(
         name='CheckF1Threshold',
         conditions=[f1_condition],
-        if_steps=[register_step],
-        else_steps=[]
+        if_steps=[register_step],      # Model meets threshold → Register
+        else_steps=[reject_step, step_fail]          # Model fails threshold → Reject
     )
     
-    print("   ✅ Conditional step defined")
+    print(f"   ✅ Conditional step defined")
+    print(f"   ✅ Success path: Register model")
+    print(f"   ✅ Failure path: Log rejection")
+    
     
     # ===========================
     # CREATE PIPELINE
@@ -324,7 +405,7 @@ def create_pipeline():
         name=cfg.PIPELINE_NAME,
         parameters=[
             # Data and features
-            raw_data_url, model_output_path, include_volume_features,
+            raw_data_url, model_output_path, use_advanced_features,
             # Infrastructure
             instance_type, instance_count, approval_status,
             # Hyperparameters
@@ -335,7 +416,7 @@ def create_pipeline():
             feature_engineering_step,  # Step 0: Feature Engineering
             training_step,              # Step 1: Training
             evaluation_step,            # Step 2: Evaluation
-            condition_step              # Step 3: Condition → Registration
+            condition_step              # Step 3: Condition → Registration or fail
         ],
         sagemaker_session=session
     )

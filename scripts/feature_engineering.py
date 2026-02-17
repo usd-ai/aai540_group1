@@ -12,7 +12,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input-data', type=str, default='/opt/ml/processing/input')
     parser.add_argument('--output-data', type=str, default='/opt/ml/processing/output')
-    parser.add_argument('--include-volume-features', type=str, default='true')
+    parser.add_argument('--use-advanced-features', type=str, default='true')
     return parser.parse_args()
 
 def add_temporal_features(data):
@@ -142,44 +142,58 @@ def main():
     
     print("✓ AIRLINE_DELAY_RATE, ORIGIN_DELAY_RATE, DEST_DELAY_RATE, ROUTE_DELAY_RATE")
     print(f"  Global delay rate (fallback): {global_delay_rate:.4f}")
-    
-    # ============================================================================
-    # Volume-Based Features (Computed from TRAIN only!)
-    # ============================================================================
-    
-    FEATURE_COLS = [
-        # Temporal
-        'MONTH', 'DAY', 'DAY_OF_WEEK', 'DEP_HOUR', 'SCHEDULED_DEPARTURE',
-        'HOUR_SIN', 'HOUR_COS', 'IS_PEAK_HOUR', 'IS_WEEKEND',
+
+    if args.use_advanced_features.lower() == 'true':  # ← Updated
+        # IMPROVED MODEL: All features including target encoding and volume
+        print("Building IMPROVED feature set (advanced features enabled)...")
         
-        # Distance
-        'DISTANCE', 'SCHEDULED_TIME', 'IS_LONG_HAUL', 'DISTANCE_BUCKET',
+        FEATURE_COLS = [
+            # Temporal
+            'MONTH', 'DAY', 'DAY_OF_WEEK', 'DEP_HOUR', 'SCHEDULED_DEPARTURE',
+            'HOUR_SIN', 'HOUR_COS', 'IS_PEAK_HOUR', 'IS_WEEKEND',
+            
+            # Distance
+            'DISTANCE', 'SCHEDULED_TIME', 'IS_LONG_HAUL', 'DISTANCE_BUCKET',
+            
+            # Target-encoded (advanced features)
+            'AIRLINE_DELAY_RATE', 'ORIGIN_DELAY_RATE', 'DEST_DELAY_RATE', 'ROUTE_DELAY_RATE'
+        ]
         
-        # Target-encoded
-        'AIRLINE_DELAY_RATE', 'ORIGIN_DELAY_RATE', 'DEST_DELAY_RATE', 'ROUTE_DELAY_RATE'
-    ]
-    
-    if args.include_volume_features.lower() == 'true':
-        print("\n--- Creating Volume Features ---")
-        
-        # Compute flight counts from training data
+        # Create volume features (advanced features)
+        print("--- Creating Advanced Features (target encoding + volume) ---")
         origin_counts = train_df['ORIGIN_AIRPORT'].value_counts().to_dict()
         dest_counts = train_df['DESTINATION_AIRPORT'].value_counts().to_dict()
         route_counts = train_df['ROUTE'].value_counts().to_dict()
         
-        # Apply log-scaled counts (log1p handles zeros gracefully)
         for data in [train_df, val_df, test_df]:
             data['ORIGIN_FLIGHTS'] = np.log1p(data['ORIGIN_AIRPORT'].map(origin_counts).fillna(0))
             data['DEST_FLIGHTS'] = np.log1p(data['DESTINATION_AIRPORT'].map(dest_counts).fillna(0))
             data['ROUTE_FLIGHTS'] = np.log1p(data['ROUTE'].map(route_counts).fillna(0))
         
-        print("✓ ORIGIN_FLIGHTS, DEST_FLIGHTS, ROUTE_FLIGHTS (log-scaled)")
+        print("✓ Target encoding: AIRLINE_DELAY_RATE, ORIGIN_DELAY_RATE, DEST_DELAY_RATE, ROUTE_DELAY_RATE")
+        print("✓ Volume features: ORIGIN_FLIGHTS, DEST_FLIGHTS, ROUTE_FLIGHTS")
         
-        # Add to feature list
         FEATURE_COLS.extend(['ORIGIN_FLIGHTS', 'DEST_FLIGHTS', 'ROUTE_FLIGHTS'])
+        
+        print(f"✓ IMPROVED feature set: {len(FEATURE_COLS)} features")
+        
     else:
-        print("\n--- Skipping Volume Features ---")
-    
+        # BASELINE MODEL: Basic features ONLY
+        print("Building BASELINE feature set (basic features only)...")
+        
+        FEATURE_COLS = [
+            # Temporal (basic)
+            'MONTH', 'DAY', 'DAY_OF_WEEK', 'DEP_HOUR',
+            'HOUR_SIN', 'HOUR_COS', 'IS_PEAK_HOUR', 'IS_WEEKEND',
+            
+            # Distance (basic)
+            'DISTANCE', 'SCHEDULED_TIME', 'IS_LONG_HAUL', 'DISTANCE_BUCKET'
+        ]
+        
+        print(f"✓ BASELINE feature set: {len(FEATURE_COLS)} features")
+        print("  Basic features only (temporal + distance)")
+        print("  Advanced features excluded (target encoding + volume)")
+
     # ============================================================================
     # Prepare Final Feature Matrix
     # ============================================================================
