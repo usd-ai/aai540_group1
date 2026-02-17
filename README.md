@@ -61,7 +61,7 @@ End-to-end ML pipeline for predicting U.S. domestic flight delays (>15 minutes) 
 ```
 ## **Detailed Flow**
 
-![Flight Delay Pipeline Diagram](FlightDelayPipeline_Diagram.png)
+![Flight Delay Pipeline Diagram](FlightDelayPipeline.png)
 
 ---
 
