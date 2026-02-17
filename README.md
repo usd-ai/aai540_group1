@@ -42,52 +42,57 @@ End-to-end ML pipeline for predicting U.S. domestic flight delays (>15 minutes) 
                               │
                     Manual Approval in Studio
                               │
-                 ┌────────────┴────────────┐
-                 ▼                         ▼
-        ┌──────────────┐         ┌──────────────┐
-        │    Batch     │         │   Realtime   │
-        │  Transform   │         │   Endpoint   │
-        │ (Predictions)│         │ (Data Capture│
-        └──────────────┘         │   Enabled)   │
-                                 └──────┬───────┘
-                                        │
-┌───────────────────────────────────────┴──────────────────────────────┐
-│                      Model Monitoring                                │
-│                                                                      │
-│  Phase 1: Baseline             Phase 2: Production Streaming         │
-│  ┌─────────────────┐           ┌─────────────────────┐               │
-│  │ 500 Nov test    │           │ 500 Dec production  │               │
-│  │ records through │           │ records streamed    │               │
-│  │ endpoint ──▶    │           │ with inference IDs  │               │
-│  │ Baselining Job  │           │ + ground truth JSONL│               │
-│  │ (ref stats +    │           │ uploaded to S3      │               │
-│  │  constraints)   │           └──────────┬──────────┘               │
-│  └────────┬────────┘                      │                          │
-│           │                               │                          │
-│           ▼                               ▼                          │
-│  Phase 3: Scheduled Evaluation                                       │
-│  ┌────────────────────────────────────────────────┐                  │
-│  │ Model Monitor Processing Job (daily schedule)  │                  │
-│  │ Compare predictions vs ground truth            │                  │
-│  │ ──▶ Metrics: F1, Precision, Recall, AUC        │                  │
-│  │ ──▶ Reports to monitoring/reports/             │                  │
-│  └────────────────────┬───────────────────────────┘                  │
-│                       │                                              │
-│                       ▼                                              │
-│  Phase 4: Automated Alerting                                         │
-│  ┌────────────────────────────────────────────────┐                  │
-│  │ CloudWatch Alarm: flight-delay-model-quality-f1│                  │
-│  │ Trigger: Avg F1 < threshold over 10 min        │                  │
-│  │ Missing data = breaching (assumes degradation) │                  │
-│  └────────────────────┬───────────────────────────┘                  │
-│                       │                                              │
-│                       ▼                                              │
-│               ┌───────────────┐                                      │
-│               │  ALERT ──▶    │                                      │
-│               │  Retrain      │                                      │
-│               │  Pipeline     │                                      │
-│               └───────────────┘                                      │
-└──────────────────────────────────────────────────────────────────────┘
+                              ▼
+              deploy_model.py (batch or realtime)
+                              │
+         ┌────────────────────┼────────────────────┐
+         ▼                                         ▼
+┌──────────────┐                          ┌──────────────┐
+│    Batch     │                          │   Realtime   │
+│  Transform   │                          │   Endpoint   │
+│ (Predictions │                          │ (Data Capture│
+│   to S3)     │                          │   Enabled)   │
+└──────────────┘                          └──────┬───────┘
+                                                 │
+                                                 ▼
+┌────────────────────────────────────────────────────────────────────┐
+│                      Model Monitoring                              │
+│                      monitor_model.py                              │
+│                                                                    │
+│  Phase 1: Baseline              Phase 2: Production Streaming      │
+│  ┌──────────────────┐           ┌──────────────────────┐           │
+│  │ 500 Nov test     │           │ 500 Dec production   │           │
+│  │ records through  │           │ records streamed     │           │
+│  │ endpoint ──▶     │           │ with inference IDs   │           │
+│  │ Baselining Job   │           │ + ground truth JSONL │           │
+│  │ (ref stats +     │           │ uploaded to S3       │           │
+│  │  constraints)    │           └──────────┬───────────┘           │
+│  └────────┬─────────┘                      │                       │
+│           │                                │                       │
+│           ▼                                ▼                       │
+│  Phase 3: Scheduled Evaluation                                     │
+│  ┌─────────────────────────────────────────────────┐               │
+│  │ Model Monitor Processing Job (daily schedule)   │               │
+│  │ Compare predictions vs ground truth             │               │
+│  │ ──▶ Metrics: F1, Precision, Recall, AUC         │               │
+│  │ ──▶ Reports to monitoring/reports/              │               │
+│  └────────────────────┬────────────────────────────┘               │
+│                       │                                            │
+│                       ▼                                            │
+│  Phase 4: Automated Alerting                                       │
+│  ┌─────────────────────────────────────────────────┐               │
+│  │ CloudWatch Alarm: flight-delay-model-quality-f1 │               │
+│  │ Trigger: Avg F1 < threshold over 10 min              │               │
+│  │ Missing data = breaching (assumes degradation)  │               │
+│  └────────────────────┬────────────────────────────┘               │
+│                       │                                            │
+│                       ▼                                            │
+│               ┌───────────────┐                                    │
+│               │ ALERT ──▶     │                                    │
+│               │ Retrain       │                                    │
+│               │ Pipeline      │                                    │
+│               └───────────────┘                                    │
+└────────────────────────────────────────────────────────────────────┘
 ```
 ## **Detailed Flow**
 
