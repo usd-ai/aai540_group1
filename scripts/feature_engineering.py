@@ -73,7 +73,14 @@ def main():
     train_df = pd.read_csv(os.path.join(args.input_data, 'train.csv'))
     val_df = pd.read_csv(os.path.join(args.input_data, 'val.csv'))
     test_df = pd.read_csv(os.path.join(args.input_data, 'test.csv'))
-    
+
+    # Optionally load production data (December) if present
+    prod_path = os.path.join(args.input_data, 'prod.csv')
+    prod_df = None
+    if os.path.exists(prod_path):
+        prod_df = pd.read_csv(prod_path)
+        print(f"Prod:  {prod_df.shape}")
+
     print(f"Train: {train_df.shape}")
     print(f"Val:   {val_df.shape}")
     print(f"Test:  {test_df.shape}")
@@ -83,7 +90,8 @@ def main():
     # ============================================================================
     print("\n--- Converting categorical columns to strings ---")
     
-    for df in [train_df, val_df, test_df]:
+    all_dfs = [train_df, val_df, test_df] + ([prod_df] if prod_df is not None else [])
+    for df in all_dfs:
         df['AIRLINE'] = df['AIRLINE'].astype(str)
         df['ORIGIN_AIRPORT'] = df['ORIGIN_AIRPORT'].astype(str)
         df['DESTINATION_AIRPORT'] = df['DESTINATION_AIRPORT'].astype(str)
@@ -99,17 +107,17 @@ def main():
     # ============================================================================
     print("\n--- Creating Temporal Features ---")
     
-    for data in [train_df, val_df, test_df]:
+    for data in all_dfs:
         add_temporal_features(data)
-    
+
     print("✓ DEP_HOUR, HOUR_SIN, HOUR_COS, IS_PEAK_HOUR, IS_WEEKEND")
-    
+
     # ============================================================================
     # Distance Features
     # ============================================================================
     print("\n--- Creating Distance Features ---")
-    
-    for data in [train_df, val_df, test_df]:
+
+    for data in all_dfs:
         add_distance_features(data)
     
     print("✓ IS_LONG_HAUL, DISTANCE_BUCKET")
@@ -128,13 +136,13 @@ def main():
     dest_delay = train_df.groupby('DESTINATION_AIRPORT')['DELAYED'].mean().to_dict()
     
     # Create route ID (NOW SAFE - strings!)
-    for data in [train_df, val_df, test_df]:
+    for data in all_dfs:
         data['ROUTE'] = data['ORIGIN_AIRPORT'] + '_' + data['DESTINATION_AIRPORT']
-    
+
     route_delay = train_df.groupby('ROUTE')['DELAYED'].mean().to_dict()
-    
+
     # Apply to all datasets (unseen categories get global rate)
-    for data in [train_df, val_df, test_df]:
+    for data in all_dfs:
         data['AIRLINE_DELAY_RATE'] = data['AIRLINE'].map(airline_delay).fillna(global_delay_rate)
         data['ORIGIN_DELAY_RATE'] = data['ORIGIN_AIRPORT'].map(origin_delay).fillna(global_delay_rate)
         data['DEST_DELAY_RATE'] = data['DESTINATION_AIRPORT'].map(dest_delay).fillna(global_delay_rate)
@@ -165,7 +173,8 @@ def main():
         dest_counts = train_df['DESTINATION_AIRPORT'].value_counts().to_dict()
         route_counts = train_df['ROUTE'].value_counts().to_dict()
         
-        for data in [train_df, val_df, test_df]:
+        # Apply log-scaled counts (log1p handles zeros gracefully)
+        for data in all_dfs:
             data['ORIGIN_FLIGHTS'] = np.log1p(data['ORIGIN_AIRPORT'].map(origin_counts).fillna(0))
             data['DEST_FLIGHTS'] = np.log1p(data['DESTINATION_AIRPORT'].map(dest_counts).fillna(0))
             data['ROUTE_FLIGHTS'] = np.log1p(data['ROUTE'].map(route_counts).fillna(0))
@@ -207,13 +216,16 @@ def main():
     train_final = train_df[final_columns]
     val_final = val_df[final_columns]
     test_final = test_df[final_columns]
-    
+    prod_final = prod_df[final_columns] if prod_df is not None else None
+
     print(f"\n✓ Feature count: {len(FEATURE_COLS)}")
     print(f"✓ Output columns: {len(final_columns)} (1 target + {len(FEATURE_COLS)} features)")
     print(f"✓ Output shapes:")
     print(f"  Train: {train_final.shape}")
     print(f"  Val:   {val_final.shape}")
     print(f"  Test:  {test_final.shape}")
+    if prod_final is not None:
+        print(f"  Prod:  {prod_final.shape}")
     
     # ============================================================================
     # Save as CSV (no headers for XGBoost)
@@ -223,17 +235,23 @@ def main():
     os.makedirs(os.path.join(args.output_data, 'train'), exist_ok=True)
     os.makedirs(os.path.join(args.output_data, 'validation'), exist_ok=True)
     os.makedirs(os.path.join(args.output_data, 'test'), exist_ok=True)
-    
-    train_final.to_csv(os.path.join(args.output_data, 'train', 'train.csv'), 
+
+    train_final.to_csv(os.path.join(args.output_data, 'train', 'train.csv'),
                        header=False, index=False)
-    val_final.to_csv(os.path.join(args.output_data, 'validation', 'val.csv'), 
+    val_final.to_csv(os.path.join(args.output_data, 'validation', 'val.csv'),
                      header=False, index=False)
-    test_final.to_csv(os.path.join(args.output_data, 'test', 'test.csv'), 
+    test_final.to_csv(os.path.join(args.output_data, 'test', 'test.csv'),
                       header=False, index=False)
-    
+
     print("✓ train.csv (no headers)")
     print("✓ val.csv (no headers)")
     print("✓ test.csv (no headers)")
+
+    if prod_final is not None:
+        os.makedirs(os.path.join(args.output_data, 'production'), exist_ok=True)
+        prod_final.to_csv(os.path.join(args.output_data, 'production', 'prod.csv'),
+                          header=False, index=False)
+        print("✓ prod.csv (no headers)")
     
     # ============================================================================
     # Summary
