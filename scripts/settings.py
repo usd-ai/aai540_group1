@@ -78,7 +78,7 @@ if not ROLE:
 # Fallback: the hardcoded shared bucket the team has been using.
 # Prefer an explicit env var, otherwise use the SageMaker session default bucket
 # (works in Studio / job containers). Keep a final hardcoded fallback.
-BUCKET: str = os.environ.get("SAGEMAKER_BUCKET") or "sagemaker-us-east-1-425709451100"
+BUCKET: str = os.environ.get("SAGEMAKER_BUCKET") or sagemaker_session.default_bucket()
 
 # ──────────────────────────────────────────────
 # Project Identifiers
@@ -333,7 +333,7 @@ BASELINE_SAMPLE_SIZE: int = 500
 PRODUCTION_SAMPLE_SIZE: int = 500
 
 # CloudWatch alarm settings
-CW_ALARM_METRIC: str = "f1"
+CW_ALARM_METRIC: str = "binary_classification_f1"
 CW_ALARM_THRESHOLD: float = F1_THRESHOLD
 CW_ALARM_PERIOD_SECONDS: int = 600
 CW_ALARM_EVALUATION_PERIODS: int = 1
