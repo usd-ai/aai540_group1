@@ -279,7 +279,7 @@ def create_monitoring_schedule(
         endpoint_input=endpoint_input,
         output_s3_uri=cfg.get_s3_path("monitor_reports"),
         problem_type=cfg.MONITORING_PROBLEM_TYPE,
-        ground_truth_input=ground_truth_s3,
+        ground_truth_input=ground_truth_s3.rstrip("/"),
         constraints=baseline_job.suggested_constraints(),
         schedule_cron_expression=cron_expr,
         enable_cloudwatch_metrics=True,
