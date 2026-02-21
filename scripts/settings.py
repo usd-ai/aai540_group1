@@ -78,7 +78,7 @@ if not ROLE:
 # Fallback: the hardcoded shared bucket the team has been using.
 # Prefer an explicit env var, otherwise use the SageMaker session default bucket
 # (works in Studio / job containers). Keep a final hardcoded fallback.
-BUCKET: str = os.environ.get("SAGEMAKER_BUCKET") or sagemaker_session.default_bucket()
+BUCKET: str = os.environ.get("SAGEMAKER_BUCKET", "sagemaker-us-east-1-425709451100")
 
 # ──────────────────────────────────────────────
 # Project Identifiers
