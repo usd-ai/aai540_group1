@@ -53,13 +53,13 @@ EXPERIMENTS = {
     'baseline': {
         'description': 'Baseline model, simpler hyperparameters',
         'parameters': {
-            'UseAdvancedFeatures': 'false',  # Only 17 features
+            'UseAdvancedFeatures': 'false',  # Only basic features
             'MaxDepth': 1,
             'Eta': 0.9,
             'NumRound': 10,
             'Subsample': 0.4,
             'ColsampleByTree': 0.4,
-            'ScalePosWeight': 1.0,
+            'ScalePosWeight': 5.5,
             'MinChildWeight': 20
         }
     },

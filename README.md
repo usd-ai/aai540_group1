@@ -2,7 +2,13 @@
 
 AAI-540 MLOps Course · Group 1 · University of San Diego
 
+Authors: Bosky A., Hassan A., Antonio R.
+
 End-to-end ML pipeline for predicting U.S. domestic flight delays (>15 minutes) using AWS SageMaker and XGBoost.
+
+AI-Assisted Development
+Portions of the code and documentation in this project were developed with the assistance of AI tools, including Claude (Anthropic) and GitHub Copilot. All AI-generated content was reviewed, validated, and adapted by the project authors. Final implementation decisions, architectural choices, and results remain the responsibility of the team.
+
 
 **Tech Stack:** AWS SageMaker · XGBoost 1.5-1 · Python · S3 · Model Registry · Batch Transform · Model Quality Monitor · CloudWatch
 
@@ -373,7 +379,7 @@ aai540-group1/
 
 ## Experiment Presets
 
-### Baseline (v1 — 17 features)
+### Baseline (v1 — subset of features)
 Conservative hyperparameters, no volume features, no target encoding.
 
 ```bash

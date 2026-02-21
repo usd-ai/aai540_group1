@@ -151,7 +151,7 @@ def main():
     print("✓ AIRLINE_DELAY_RATE, ORIGIN_DELAY_RATE, DEST_DELAY_RATE, ROUTE_DELAY_RATE")
     print(f"  Global delay rate (fallback): {global_delay_rate:.4f}")
 
-    if args.use_advanced_features.lower() == 'true':  # ← Updated
+    if args.use_advanced_features.lower() == 'true':  
         # IMPROVED MODEL: All features including target encoding and volume
         print("Building IMPROVED feature set (advanced features enabled)...")
         
